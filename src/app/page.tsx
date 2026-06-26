@@ -2,7 +2,8 @@
 
 import React, { useEffect, useState } from 'react';
 import { initializeApp, getApp, getApps } from 'firebase/app';
-import { addDoc, collection, deleteDoc, doc, getDocs, getFirestore, updateDoc } from 'firebase/firestore';
+import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, getFirestore, updateDoc } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyAoaJmF72UdLDd7kKfdvRMH_j_NFL8KZj8',
@@ -15,9 +16,14 @@ const firebaseConfig = {
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const auth = getAuth(app);
+const googleProvider = new GoogleAuthProvider();
 const CURRENT_GROUP_ID = 'demo_group_01';
+const ADMIN_EMAILS = ['jiranimwema202420@gmail.com'];
 
 type PaymentStatus = 'Paid' | 'Pending';
+type UserRole = 'Guest' | 'Member' | 'Treasurer' | 'Admin';
+type ProtectedRole = Exclude<UserRole, 'Guest'>;
 type VerificationStatus = 'Unverified' | 'Verified' | 'Rejected';
 type RoundStatus = 'Completed' | 'Current' | 'Upcoming';
 type InsuranceStatus = 'Active' | 'Pending' | 'Expired';
@@ -131,6 +137,48 @@ interface ModuleProps {
   content: React.ReactNode;
 }
 
+const roleRank: Record<UserRole, number> = {
+  Guest: 0,
+  Member: 1,
+  Treasurer: 2,
+  Admin: 3,
+};
+
+const normalizeUserRole = (value: unknown): UserRole => {
+  const normalized = String(value || '').trim().toLowerCase();
+
+  if (normalized === 'admin' || normalized === 'administrator' || normalized === 'owner') return 'Admin';
+  if (normalized === 'treasurer' || normalized === 'finance' || normalized === 'official') return 'Treasurer';
+  if (normalized === 'member') return 'Member';
+
+  return 'Member';
+};
+
+const resolveSignedInRole = async (firebaseUser: User): Promise<UserRole> => {
+  const email = firebaseUser.email?.trim().toLowerCase() || '';
+
+  if (ADMIN_EMAILS.includes(email)) return 'Admin';
+
+  const possibleRoleDocs = [
+    doc(db, 'memberships', `membership_${firebaseUser.uid}`),
+    doc(db, 'groups', CURRENT_GROUP_ID, 'memberships', firebaseUser.uid),
+  ];
+
+  for (const roleDoc of possibleRoleDocs) {
+    const snapshot = await getDoc(roleDoc);
+
+    if (snapshot.exists()) {
+      const data = snapshot.data();
+      const status = String(data.status || data.membershipStatus || 'active').trim().toLowerCase();
+
+      if (status === 'disabled' || status === 'inactive' || status === 'suspended') return 'Guest';
+      return normalizeUserRole(data.role || data.userRole || data.accessLevel);
+    }
+  }
+
+  return 'Member';
+};
+
 const todayIso = () => new Date().toISOString().split('T')[0];
 const oneYearFromTodayIso = () => {
   const date = new Date();
@@ -234,6 +282,9 @@ export default function DashboardPage() {
   const [auditModuleFilter, setAuditModuleFilter] = useState('All');
   const [auditSearch, setAuditSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentUserRole, setCurrentUserRole] = useState<UserRole>('Guest');
 
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Member>>({});
@@ -314,10 +365,48 @@ export default function DashboardPage() {
     notes: '',
   });
 
+  const actorName = currentUser?.displayName || currentUser?.email || currentUserRole;
+  const hasRoleAtLeast = (minimumRole: ProtectedRole) => roleRank[currentUserRole] >= roleRank[minimumRole];
+  const canManageMembers = hasRoleAtLeast('Admin');
+  const canManageFinance = hasRoleAtLeast('Treasurer');
+  const canViewReports = hasRoleAtLeast('Treasurer');
+
+  const requireRole = (minimumRole: ProtectedRole, action: string) => {
+    if (!currentUser) {
+      alert(`Please sign in before you ${action}.`);
+      return false;
+    }
+
+    if (!hasRoleAtLeast(minimumRole)) {
+      alert(`You need ${minimumRole} access or higher to ${action}. Current role: ${currentUserRole}.`);
+      return false;
+    }
+
+    return true;
+  };
+
+  const handleSignIn = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error) {
+      console.error('Failed to sign in:', error);
+      alert('Failed to sign in with Google.');
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error('Failed to sign out:', error);
+      alert('Failed to sign out.');
+    }
+  };
+
   const writeAuditLog = async ({
     action,
     module,
-    actor = 'System',
+    actor = actorName,
     targetId = '',
     targetName = '',
     details,
@@ -339,6 +428,31 @@ export default function DashboardPage() {
       console.error('Failed to write audit log:', error);
     }
   };
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setAuthLoading(true);
+      setCurrentUser(firebaseUser);
+
+      if (!firebaseUser) {
+        setCurrentUserRole('Guest');
+        setAuthLoading(false);
+        return;
+      }
+
+      try {
+        const resolvedRole = await resolveSignedInRole(firebaseUser);
+        setCurrentUserRole(resolvedRole);
+      } catch (error) {
+        console.error('Failed to resolve user role:', error);
+        setCurrentUserRole('Member');
+      } finally {
+        setAuthLoading(false);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     async function fetchData() {
@@ -447,6 +561,7 @@ export default function DashboardPage() {
 
   const handleAddMemberSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!requireRole('Admin', 'add members')) return;
     if (!newMember.name.trim()) return;
 
     setSubmittingMember(true);
@@ -467,7 +582,7 @@ export default function DashboardPage() {
       await writeAuditLog({
         action: 'Create Member',
         module: 'Members',
-        actor: 'Admin',
+        actor: actorName,
         targetId: docRef.id,
         targetName: memberData.name,
         details: `Created member ${memberData.name}.`,
@@ -483,6 +598,7 @@ export default function DashboardPage() {
 
   const handleAddContributionSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!requireRole('Treasurer', 'record monthly contributions')) return;
     if (!newContribution.memberName.trim()) return;
 
     const welfare = toMoneyNumber(newContribution.welfare);
@@ -529,7 +645,7 @@ export default function DashboardPage() {
       await writeAuditLog({
         action: 'Create Contribution',
         module: 'Contributions',
-        actor: 'Treasurer',
+        actor: actorName,
         targetId: docRef.id,
         targetName: contributionData.memberName,
         details: `Recorded ${contributionData.month} contribution for ${contributionData.memberName}; expected KES ${contributionData.expectedAmount}, paid KES ${contributionData.paidAmount}, balance KES ${contributionData.balance}.`,
@@ -555,6 +671,7 @@ export default function DashboardPage() {
 
   const handleGenerateMonthlyRows = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!requireRole('Treasurer', 'generate monthly contribution rows')) return;
 
     const month = generationMonth.trim();
     if (!month) {
@@ -631,7 +748,7 @@ export default function DashboardPage() {
       await writeAuditLog({
         action: 'Generate Monthly Rows',
         module: 'Contributions',
-        actor: 'Treasurer',
+        actor: actorName,
         targetName: month,
         details: `Generated ${createdRows.length} monthly contribution row(s) for ${month}.`,
       });
@@ -648,6 +765,7 @@ export default function DashboardPage() {
 
   const handleAddRoundSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!requireRole('Treasurer', 'create merry-go-round rounds')) return;
     if (!newRound.recipientName.trim() || !newRound.roundNumber) return;
 
     setSubmittingRound(true);
@@ -667,7 +785,7 @@ export default function DashboardPage() {
       await writeAuditLog({
         action: 'Create Merry-Go-Round Round',
         module: 'Merry-Go-Round',
-        actor: 'Treasurer',
+        actor: actorName,
         targetId: docRef.id,
         targetName: roundData.recipientName,
         details: `Scheduled round ${roundData.roundNumber} for ${roundData.recipientName}.`,
@@ -683,6 +801,7 @@ export default function DashboardPage() {
 
   const handleAddInsurancePolicySubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!requireRole('Admin', 'create insurance policies')) return;
     if (!newInsurancePolicy.providerName.trim()) return;
 
     setSubmittingInsurance(true);
@@ -706,7 +825,7 @@ export default function DashboardPage() {
       await writeAuditLog({
         action: 'Create Insurance Policy',
         module: 'Insurance',
-        actor: 'Admin',
+        actor: actorName,
         targetId: docRef.id,
         targetName: policyData.providerName,
         details: `Created insurance policy for ${policyData.providerName}.`,
@@ -732,6 +851,7 @@ export default function DashboardPage() {
 
   const handleAddBereavedCaseSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!requireRole('Admin', 'create bereaved support cases')) return;
     if (!newBereavedCase.memberName.trim()) return;
 
     setSubmittingBereavedCase(true);
@@ -757,7 +877,7 @@ export default function DashboardPage() {
       await writeAuditLog({
         action: 'Create Bereaved Case',
         module: 'Bereaved Support',
-        actor: 'Admin',
+        actor: actorName,
         targetId: docRef.id,
         targetName: caseData.memberName,
         details: `Created bereaved support case for ${caseData.memberName}.`,
@@ -781,6 +901,7 @@ export default function DashboardPage() {
   };
 
   const startEditing = (member: Member) => {
+    if (!requireRole('Admin', 'edit members')) return;
     setEditingMemberId(member.id);
     setEditForm(member);
   };
@@ -794,6 +915,7 @@ export default function DashboardPage() {
   };
 
   const saveMemberChanges = async (id: string) => {
+    if (!requireRole('Admin', 'edit members')) return;
     try {
       const memberRef = doc(db, 'groups', CURRENT_GROUP_ID, 'members', id);
       await updateDoc(memberRef, {
@@ -810,7 +932,7 @@ export default function DashboardPage() {
       await writeAuditLog({
         action: 'Update Member',
         module: 'Members',
-        actor: 'Admin',
+        actor: actorName,
         targetId: id,
         targetName: editForm.name || 'Member',
         details: `Updated member ${editForm.name || id}.`,
@@ -823,6 +945,7 @@ export default function DashboardPage() {
   };
 
   const handleDeleteMember = async (id: string) => {
+    if (!requireRole('Admin', 'delete members')) return;
     const targetMember = members.find((member) => member.id === id);
     if (!window.confirm('Remove this member from the database?')) return;
     try {
@@ -831,7 +954,7 @@ export default function DashboardPage() {
       await writeAuditLog({
         action: 'Delete Member',
         module: 'Members',
-        actor: 'Admin',
+        actor: actorName,
         targetId: id,
         targetName: targetMember?.name || 'Member',
         details: `Deleted member ${targetMember?.name || id}.`,
@@ -843,6 +966,7 @@ export default function DashboardPage() {
   };
 
   const startEditingContribution = (contribution: MonthlyContribution) => {
+    if (!requireRole('Treasurer', 'edit monthly contributions')) return;
     setEditingContributionId(contribution.id);
     setContributionEditForm(contributionToEditForm(contribution));
   };
@@ -862,6 +986,7 @@ export default function DashboardPage() {
   };
 
   const saveContributionChanges = async (id: string) => {
+    if (!requireRole('Treasurer', 'save monthly contribution edits')) return;
     if (!contributionEditForm.memberName.trim()) {
       alert('Member name is required.');
       return;
@@ -921,7 +1046,7 @@ export default function DashboardPage() {
       await writeAuditLog({
         action: 'Update Contribution',
         module: 'Contributions',
-        actor: 'Treasurer',
+        actor: actorName,
         targetId: id,
         targetName: updatedContribution.memberName,
         details: `Updated ${updatedContribution.month} contribution for ${updatedContribution.memberName}.`,
@@ -934,6 +1059,7 @@ export default function DashboardPage() {
   };
 
   const markContributionStatus = async (id: string, paymentStatus: PaymentStatus) => {
+    if (!requireRole('Treasurer', 'update payment status')) return;
     const targetContribution = contributions.find((contribution) => contribution.id === id);
     if (!targetContribution) return;
 
@@ -977,7 +1103,7 @@ export default function DashboardPage() {
       await writeAuditLog({
         action: 'Update Payment Status',
         module: 'Contributions',
-        actor: 'Treasurer',
+        actor: actorName,
         targetId: id,
         targetName: targetContribution.memberName,
         details: `Marked ${targetContribution.memberName}'s ${targetContribution.month} contribution as ${paymentStatus}.`,
@@ -989,6 +1115,7 @@ export default function DashboardPage() {
   };
 
   const updateContributionVerification = async (id: string, verificationStatus: VerificationStatus) => {
+    if (!requireRole('Treasurer', 'verify payments')) return;
     const targetContribution = contributions.find((contribution) => contribution.id === id);
     if (!targetContribution) return;
 
@@ -1052,6 +1179,7 @@ export default function DashboardPage() {
   };
 
   const handleDeleteContribution = async (id: string) => {
+    if (!requireRole('Treasurer', 'delete monthly contributions')) return;
     const targetContribution = contributions.find((contribution) => contribution.id === id);
     if (!window.confirm('Delete this contribution record?')) return;
     try {
@@ -1060,7 +1188,7 @@ export default function DashboardPage() {
       await writeAuditLog({
         action: 'Delete Contribution',
         module: 'Contributions',
-        actor: 'Treasurer',
+        actor: actorName,
         targetId: id,
         targetName: targetContribution?.memberName || 'Contribution',
         details: `Deleted ${targetContribution?.month || ''} contribution for ${targetContribution?.memberName || id}.`,
@@ -1072,6 +1200,7 @@ export default function DashboardPage() {
   };
 
   const handleDeleteRound = async (id: string) => {
+    if (!requireRole('Treasurer', 'delete merry-go-round rounds')) return;
     const targetRound = merryGoRound.find((round) => round.id === id);
     if (!window.confirm('Delete this merry-go-round round?')) return;
     try {
@@ -1080,7 +1209,7 @@ export default function DashboardPage() {
       await writeAuditLog({
         action: 'Delete Merry-Go-Round Round',
         module: 'Merry-Go-Round',
-        actor: 'Treasurer',
+        actor: actorName,
         targetId: id,
         targetName: targetRound?.recipientName || 'Round',
         details: `Deleted merry-go-round round ${targetRound?.roundNumber || id}.`,
@@ -1092,6 +1221,7 @@ export default function DashboardPage() {
   };
 
   const markRoundAsCompleted = async (id: string) => {
+    if (!requireRole('Treasurer', 'complete merry-go-round rounds')) return;
     try {
       const completedAt = new Date().toISOString();
       await updateDoc(doc(db, 'groups', CURRENT_GROUP_ID, 'rounds', id), {
@@ -1104,7 +1234,7 @@ export default function DashboardPage() {
       await writeAuditLog({
         action: 'Complete Merry-Go-Round Round',
         module: 'Merry-Go-Round',
-        actor: 'Treasurer',
+        actor: actorName,
         targetId: id,
         targetName: targetRound?.recipientName || 'Round',
         details: `Marked round ${targetRound?.roundNumber || id} as completed.`,
@@ -1116,6 +1246,7 @@ export default function DashboardPage() {
   };
 
   const handleDeleteInsurancePolicy = async (id: string) => {
+    if (!requireRole('Admin', 'delete insurance policies')) return;
     const targetPolicy = insurancePolicies.find((policy) => policy.id === id);
     if (!window.confirm('Delete this insurance provider policy record?')) return;
     try {
@@ -1124,7 +1255,7 @@ export default function DashboardPage() {
       await writeAuditLog({
         action: 'Delete Insurance Policy',
         module: 'Insurance',
-        actor: 'Admin',
+        actor: actorName,
         targetId: id,
         targetName: targetPolicy?.providerName || 'Policy',
         details: `Deleted insurance policy ${targetPolicy?.policyNumber || id}.`,
@@ -1136,6 +1267,7 @@ export default function DashboardPage() {
   };
 
   const handleDeleteBereavedCase = async (id: string) => {
+    if (!requireRole('Admin', 'delete bereaved support cases')) return;
     const targetCase = bereavedCases.find((caseItem) => caseItem.id === id);
     if (!window.confirm('Delete this bereaved family case?')) return;
     try {
@@ -1144,7 +1276,7 @@ export default function DashboardPage() {
       await writeAuditLog({
         action: 'Delete Bereaved Case',
         module: 'Bereaved Support',
-        actor: 'Admin',
+        actor: actorName,
         targetId: id,
         targetName: targetCase?.memberName || 'Bereaved Case',
         details: `Deleted bereaved support case for ${targetCase?.memberName || id}.`,
@@ -1156,6 +1288,7 @@ export default function DashboardPage() {
   };
 
   const markBereavedCaseClosed = async (id: string) => {
+    if (!requireRole('Admin', 'close bereaved support cases')) return;
     try {
       const updatedAt = new Date().toISOString();
       await updateDoc(doc(db, 'groups', CURRENT_GROUP_ID, 'bereavedCases', id), {
@@ -1167,7 +1300,7 @@ export default function DashboardPage() {
       await writeAuditLog({
         action: 'Close Bereaved Case',
         module: 'Bereaved Support',
-        actor: 'Admin',
+        actor: actorName,
         targetId: id,
         targetName: targetCase?.memberName || 'Bereaved Case',
         details: `Marked bereaved support case for ${targetCase?.memberName || id} as closed.`,
@@ -1244,7 +1377,7 @@ export default function DashboardPage() {
       void writeAuditLog({
         action: auditInfo.action,
         module: auditInfo.module,
-        actor: 'System',
+        actor: actorName,
         targetName: filename,
         details: auditInfo.details,
       });
@@ -1252,6 +1385,7 @@ export default function DashboardPage() {
   };
 
   const exportContributionsCsv = () => {
+    if (!requireRole('Treasurer', 'export contribution reports')) return;
     const headers = ['Member Name', 'Month', 'Welfare', 'Merry Go Round', 'Insurance', 'Bereaved Family', 'Expected Amount', 'Paid Amount', 'Balance', 'Payment Status', 'Payment Date', 'Verification Status', 'Verified By', 'Verified At', 'Verification Notes'];
     const exportRows = filteredContributions.length > 0 ? filteredContributions : contributions;
     const rows = exportRows.map((contribution) => [
@@ -1281,6 +1415,7 @@ export default function DashboardPage() {
   };
 
   const exportMemberStatementCsv = () => {
+    if (!requireRole('Member', 'export member statements')) return;
     if (!statementMemberName) {
       alert('Select a member before exporting a statement.');
       return;
@@ -1317,16 +1452,18 @@ export default function DashboardPage() {
   };
 
   const printDashboardReport = () => {
+    if (!requireRole('Treasurer', 'print dashboard reports')) return;
     window.print();
     void writeAuditLog({
       action: 'Print Report',
       module: 'Reports',
-      actor: 'System',
+      actor: actorName,
       details: 'Printed dashboard report.',
     });
   };
 
   const exportMembersCsv = () => {
+    if (!requireRole('Admin', 'export member reports')) return;
     downloadCsvFile(
       'jirani-members-report.csv',
       ['Member Name', 'Email', 'Contact', 'Insurance Paid', 'Status', 'Join Date'],
@@ -1336,6 +1473,7 @@ export default function DashboardPage() {
   };
 
   const exportArrearsCsv = () => {
+    if (!requireRole('Treasurer', 'export arrears reports')) return;
     const arrearsRows = contributions.filter((contribution) => getContributionBalance(contribution) > 0);
 
     downloadCsvFile(
@@ -1356,6 +1494,7 @@ export default function DashboardPage() {
   };
 
   const exportVerificationCsv = () => {
+    if (!requireRole('Treasurer', 'export verification reports')) return;
     downloadCsvFile(
       'jirani-payment-verification-report.csv',
       ['Member Name', 'Month', 'Expected Amount', 'Paid Amount', 'Balance', 'Payment Status', 'Verification Status', 'Verified By', 'Verified At', 'Verification Notes'],
@@ -1376,6 +1515,7 @@ export default function DashboardPage() {
   };
 
   const exportMerryGoRoundCsv = () => {
+    if (!requireRole('Treasurer', 'export merry-go-round reports')) return;
     downloadCsvFile(
       'jirani-merry-go-round-report.csv',
       ['Round Number', 'Recipient Name', 'Payout Date', 'Payout Amount', 'Status', 'Completed At'],
@@ -1385,6 +1525,7 @@ export default function DashboardPage() {
   };
 
   const exportInsurancePoliciesCsv = () => {
+    if (!requireRole('Admin', 'export insurance reports')) return;
     downloadCsvFile(
       'jirani-insurance-provider-report.csv',
       ['Provider Name', 'Policy Number', 'Month', 'Policy Start Date', 'Policy End Date', 'Premium Target', 'Provider Contribution', 'Last Respect Benefit', 'Status'],
@@ -1404,6 +1545,7 @@ export default function DashboardPage() {
   };
 
   const exportBereavedCasesCsv = () => {
+    if (!requireRole('Admin', 'export bereaved support reports')) return;
     downloadCsvFile(
       'jirani-bereaved-family-report.csv',
       ['Member Name', 'Family Contact', 'Month', 'Case Date', 'Target Amount', 'Collected Amount', 'Balance', 'Status', 'Notes'],
@@ -1423,6 +1565,7 @@ export default function DashboardPage() {
   };
 
   const exportDashboardSummaryCsv = () => {
+    if (!requireRole('Treasurer', 'export dashboard summary reports')) return;
     downloadCsvFile(
       'jirani-dashboard-summary-report.csv',
       ['Metric', 'Value'],
@@ -1448,6 +1591,7 @@ export default function DashboardPage() {
   };
 
   const exportAuditLogsCsv = () => {
+    if (!requireRole('Admin', 'export audit logs')) return;
     downloadCsvFile(
       'jirani-audit-logs-report.csv',
       ['Date', 'Action', 'Module', 'Actor', 'Target Name', 'Target ID', 'Details'],
@@ -1528,12 +1672,27 @@ export default function DashboardPage() {
 
   const formatCurrency = (amount: number) => `KES ${amount.toLocaleString('en-US')}`;
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.22),_transparent_34%),radial-gradient(circle_at_bottom_right,_rgba(99,102,241,0.24),_transparent_38%),linear-gradient(135deg,#020617,#0f172a_45%,#111827)] text-slate-300">
         <div className="text-center">
           <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-cyan-400 border-t-transparent" />
-          <p className="text-sm font-medium">Loading Database Dashboard...</p>
+          <p className="text-sm font-medium">Loading secured dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.22),_transparent_34%),radial-gradient(circle_at_bottom_right,_rgba(99,102,241,0.24),_transparent_38%),linear-gradient(135deg,#020617,#0f172a_45%,#111827)] px-4 text-slate-100">
+        <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-white/[0.08] p-8 text-center shadow-2xl shadow-black/25 ring-1 ring-white/5 backdrop-blur-2xl">
+          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-300">Jirani Finance App</p>
+          <h1 className="mt-2 text-3xl font-black tracking-tight text-white">Sign in required</h1>
+          <p className="mt-3 text-sm leading-6 text-slate-300">Use your Google account to open the secured group finance dashboard. Admin and Treasurer actions are restricted by role.</p>
+          <button onClick={handleSignIn} className="mt-6 w-full rounded-2xl border border-cyan-300/30 bg-cyan-400/20 px-4 py-3 text-sm font-bold text-cyan-50 shadow-lg shadow-cyan-950/20 backdrop-blur-xl transition hover:bg-cyan-400/30" type="button">
+            Sign in with Google
+          </button>
         </div>
       </div>
     );
@@ -1548,17 +1707,38 @@ export default function DashboardPage() {
           <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-300">Jirani Finance App</p>
           <h1 className="mt-1 text-3xl font-black tracking-tight text-white md:text-4xl">Group Finance Dashboard</h1>
         </div>
-        <div className="flex gap-3">
-          <button onClick={exportContributionsCsv} className="rounded-2xl border border-emerald-300/20 bg-emerald-400/20 px-4 py-2 text-sm font-semibold text-emerald-100 shadow-lg shadow-emerald-950/20 backdrop-blur-xl transition hover:bg-emerald-400/30" type="button">
-            Export CSV
-          </button>
-          <button onClick={printDashboardReport} className="rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-slate-100 shadow-lg shadow-black/10 backdrop-blur-xl transition hover:bg-white/15" type="button">
-            Print Report
-          </button>
+        <div className="flex flex-col gap-3 md:items-end">
+          <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-200">
+            <p className="font-semibold text-white">{currentUser.displayName || currentUser.email}</p>
+            <p className="text-xs text-slate-300">Role: <span className="font-bold text-cyan-200">{currentUserRole}</span></p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <button disabled={!canViewReports} onClick={exportContributionsCsv} className="rounded-2xl border border-emerald-300/20 bg-emerald-400/20 px-4 py-2 text-sm font-semibold text-emerald-100 shadow-lg shadow-emerald-950/20 backdrop-blur-xl transition hover:bg-emerald-400/30 disabled:cursor-not-allowed disabled:opacity-40" type="button">
+              Export CSV
+            </button>
+            <button disabled={!canViewReports} onClick={printDashboardReport} className="rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-slate-100 shadow-lg shadow-black/10 backdrop-blur-xl transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-40" type="button">
+              Print Report
+            </button>
+            <button onClick={handleSignOut} className="rounded-2xl border border-rose-300/20 bg-rose-400/15 px-4 py-2 text-sm font-semibold text-rose-100 shadow-lg shadow-black/10 backdrop-blur-xl transition hover:bg-rose-400/25" type="button">
+              Sign Out
+            </button>
+          </div>
         </div>
       </header>
 
       <main className="relative">
+        <Module
+          title="Access Control"
+          content={
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+              <StatCard title="Signed In As" value={currentUserRole} detail={currentUser.email || 'Google account'} />
+              <StatCard title="Member Records" value={canManageMembers ? 'Editable' : 'Locked'} detail="Admin access required" />
+              <StatCard title="Finance Records" value={canManageFinance ? 'Editable' : 'Locked'} detail="Treasurer or Admin access required" />
+              <StatCard title="Reports" value={canViewReports ? 'Enabled' : 'Restricted'} detail="Treasurer or Admin access required" />
+            </div>
+          }
+        />
+
         <Module
           title="Stats"
           content={
@@ -2369,7 +2549,7 @@ export default function DashboardPage() {
                 <option value="Pending">Pending</option>
                 <option value="Paid">Paid</option>
               </select>
-              <button type="submit" disabled={submittingMember} className="w-full rounded-2xl border border-cyan-300/20 bg-cyan-400/20 py-2 text-sm font-semibold text-cyan-50 shadow-lg shadow-cyan-950/20 backdrop-blur-xl transition hover:bg-cyan-400/30 disabled:opacity-60">{submittingMember ? 'Saving...' : 'Add Member'}</button>
+              <button type="submit" disabled={submittingMember || !canManageMembers} className="w-full rounded-2xl border border-cyan-300/20 bg-cyan-400/20 py-2 text-sm font-semibold text-cyan-50 shadow-lg shadow-cyan-950/20 backdrop-blur-xl transition hover:bg-cyan-400/30 disabled:opacity-60">{submittingMember ? 'Saving...' : 'Add Member'}</button>
             </form>
           </div>
 
@@ -2399,7 +2579,7 @@ export default function DashboardPage() {
               <div className="rounded-2xl border border-emerald-300/20 bg-emerald-400/10 px-4 py-3 text-sm font-semibold text-emerald-100">
                 Expected: {formatCurrency(newContributionTotal)} • Paid: {formatCurrency(newContributionPaidAmount)} • Balance: {formatCurrency(newContributionBalance)}
               </div>
-              <button type="submit" disabled={submittingContribution} className="w-full rounded-2xl border border-emerald-300/20 bg-emerald-400/20 py-2 text-sm font-semibold text-emerald-50 shadow-lg shadow-emerald-950/20 backdrop-blur-xl transition hover:bg-emerald-400/30 disabled:opacity-60">{submittingContribution ? 'Saving...' : 'Add Monthly Contributor'}</button>
+              <button type="submit" disabled={submittingContribution || !canManageFinance} className="w-full rounded-2xl border border-emerald-300/20 bg-emerald-400/20 py-2 text-sm font-semibold text-emerald-50 shadow-lg shadow-emerald-950/20 backdrop-blur-xl transition hover:bg-emerald-400/30 disabled:opacity-60">{submittingContribution ? 'Saving...' : 'Add Monthly Contributor'}</button>
             </form>
           </div>
 
@@ -2424,7 +2604,7 @@ export default function DashboardPage() {
                 <div className="font-semibold">Rows to create: {generationMissingMembers.length} / {generationEligibleMembers.length}</div>
                 <div className="mt-1 text-slate-300">Default expected per row: {formatCurrency(generationDefaultTotal)}</div>
               </div>
-              <button type="submit" disabled={generatingMonthlyRows || generationMissingMembers.length === 0} className="w-full rounded-2xl border border-fuchsia-300/20 bg-fuchsia-400/20 py-2 text-sm font-semibold text-fuchsia-50 shadow-lg shadow-fuchsia-950/20 backdrop-blur-xl transition hover:bg-fuchsia-400/30 disabled:opacity-60">{generatingMonthlyRows ? 'Generating...' : 'Generate For All Members'}</button>
+              <button type="submit" disabled={generatingMonthlyRows || !canManageFinance || generationMissingMembers.length === 0} className="w-full rounded-2xl border border-fuchsia-300/20 bg-fuchsia-400/20 py-2 text-sm font-semibold text-fuchsia-50 shadow-lg shadow-fuchsia-950/20 backdrop-blur-xl transition hover:bg-fuchsia-400/30 disabled:opacity-60">{generatingMonthlyRows ? 'Generating...' : 'Generate For All Members'}</button>
             </form>
           </div>
 
@@ -2441,7 +2621,7 @@ export default function DashboardPage() {
                 <option value="Current">Current</option>
                 <option value="Completed">Completed</option>
               </select>
-              <button type="submit" disabled={submittingRound} className="w-full rounded-2xl border border-indigo-300/20 bg-indigo-400/20 py-2 text-sm font-semibold text-indigo-50 shadow-lg shadow-indigo-950/20 backdrop-blur-xl transition hover:bg-indigo-400/30 disabled:opacity-60">{submittingRound ? 'Scheduling...' : 'Commit Round'}</button>
+              <button type="submit" disabled={submittingRound || !canManageFinance} className="w-full rounded-2xl border border-indigo-300/20 bg-indigo-400/20 py-2 text-sm font-semibold text-indigo-50 shadow-lg shadow-indigo-950/20 backdrop-blur-xl transition hover:bg-indigo-400/30 disabled:opacity-60">{submittingRound ? 'Scheduling...' : 'Commit Round'}</button>
             </form>
           </div>
 
@@ -2457,7 +2637,7 @@ export default function DashboardPage() {
               <input type="number" value={newInsurancePolicy.premiumTarget} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, premiumTarget: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Premium target" />
               <input type="number" value={newInsurancePolicy.providerContribution} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, providerContribution: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Provider contribution" />
               <input type="number" value={newInsurancePolicy.lastRespectBenefit} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, lastRespectBenefit: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Last respect benefit" />
-              <button type="submit" disabled={submittingInsurance} className="w-full rounded-2xl border border-cyan-300/20 bg-cyan-400/20 py-2 text-sm font-semibold text-cyan-50 shadow-lg shadow-cyan-950/20 backdrop-blur-xl transition hover:bg-cyan-400/30 disabled:opacity-60">{submittingInsurance ? 'Saving...' : 'Add Provider'}</button>
+              <button type="submit" disabled={submittingInsurance || !canManageMembers} className="w-full rounded-2xl border border-cyan-300/20 bg-cyan-400/20 py-2 text-sm font-semibold text-cyan-50 shadow-lg shadow-cyan-950/20 backdrop-blur-xl transition hover:bg-cyan-400/30 disabled:opacity-60">{submittingInsurance ? 'Saving...' : 'Add Provider'}</button>
             </form>
           </div>
 
@@ -2471,7 +2651,7 @@ export default function DashboardPage() {
               <input type="number" value={newBereavedCase.targetAmount} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, targetAmount: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Target amount" />
               <input type="number" value={newBereavedCase.collectedAmount} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, collectedAmount: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Collected amount" />
               <textarea value={newBereavedCase.notes} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, notes: event.target.value }))} className="min-h-20 w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Notes" />
-              <button type="submit" disabled={submittingBereavedCase} className="w-full rounded-2xl border border-rose-300/20 bg-rose-400/20 py-2 text-sm font-semibold text-rose-50 shadow-lg shadow-rose-950/20 backdrop-blur-xl transition hover:bg-rose-400/30 disabled:opacity-60">{submittingBereavedCase ? 'Saving...' : 'Add Case'}</button>
+              <button type="submit" disabled={submittingBereavedCase || !canManageMembers} className="w-full rounded-2xl border border-rose-300/20 bg-rose-400/20 py-2 text-sm font-semibold text-rose-50 shadow-lg shadow-rose-950/20 backdrop-blur-xl transition hover:bg-rose-400/30 disabled:opacity-60">{submittingBereavedCase ? 'Saving...' : 'Add Case'}</button>
             </form>
           </div>
         </div>
