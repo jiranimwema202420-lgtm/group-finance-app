@@ -109,6 +109,17 @@ interface BereavedCase {
   updatedAt?: string;
 }
 
+interface AuditLog {
+  id: string;
+  action: string;
+  module: string;
+  actor: string;
+  targetId?: string;
+  targetName?: string;
+  details: string;
+  createdAt: string;
+}
+
 interface StatCardProps {
   title: string;
   value: string | number;
@@ -219,6 +230,9 @@ export default function DashboardPage() {
   const [merryGoRound, setMerryGoRound] = useState<MerryGoRoundRound[]>([]);
   const [insurancePolicies, setInsurancePolicies] = useState<InsurancePolicy[]>([]);
   const [bereavedCases, setBereavedCases] = useState<BereavedCase[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [auditModuleFilter, setAuditModuleFilter] = useState('All');
+  const [auditSearch, setAuditSearch] = useState('');
   const [loading, setLoading] = useState(true);
 
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
@@ -300,6 +314,32 @@ export default function DashboardPage() {
     notes: '',
   });
 
+  const writeAuditLog = async ({
+    action,
+    module,
+    actor = 'System',
+    targetId = '',
+    targetName = '',
+    details,
+  }: Omit<AuditLog, 'id' | 'createdAt'>) => {
+    const auditData = {
+      action,
+      module,
+      actor,
+      targetId,
+      targetName,
+      details,
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      const docRef = await addDoc(collection(db, 'groups', CURRENT_GROUP_ID, 'auditLogs'), auditData);
+      setAuditLogs((previous) => [{ id: docRef.id, ...auditData }, ...previous].slice(0, 100));
+    } catch (error) {
+      console.error('Failed to write audit log:', error);
+    }
+  };
+
   useEffect(() => {
     async function fetchData() {
       try {
@@ -378,6 +418,23 @@ export default function DashboardPage() {
           ...documentSnapshot.data(),
         })) as BereavedCase[];
         setBereavedCases(bereavedList);
+
+        const auditSnapshot = await getDocs(collection(db, 'groups', CURRENT_GROUP_ID, 'auditLogs'));
+        const auditList = auditSnapshot.docs.map((documentSnapshot) => {
+          const data = documentSnapshot.data();
+
+          return {
+            id: documentSnapshot.id,
+            action: typeof data.action === 'string' ? data.action : 'Unknown Action',
+            module: typeof data.module === 'string' ? data.module : 'General',
+            actor: typeof data.actor === 'string' ? data.actor : 'System',
+            targetId: typeof data.targetId === 'string' ? data.targetId : '',
+            targetName: typeof data.targetName === 'string' ? data.targetName : '',
+            details: typeof data.details === 'string' ? data.details : '',
+            createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
+          } as AuditLog;
+        });
+        setAuditLogs(auditList.sort((firstLog, secondLog) => secondLog.createdAt.localeCompare(firstLog.createdAt)).slice(0, 100));
       } catch (error) {
         console.error('Error loading dashboard metrics:', error);
       } finally {
@@ -407,6 +464,14 @@ export default function DashboardPage() {
 
       const docRef = await addDoc(collection(db, 'groups', CURRENT_GROUP_ID, 'members'), memberData);
       setMembers((previous) => [...previous, { id: docRef.id, ...memberData }]);
+      await writeAuditLog({
+        action: 'Create Member',
+        module: 'Members',
+        actor: 'Admin',
+        targetId: docRef.id,
+        targetName: memberData.name,
+        details: `Created member ${memberData.name}.`,
+      });
       setNewMember({ name: '', email: '', contact: '', insurancePaid: '', status: 'Pending', joinDate: todayIso() });
     } catch (error) {
       console.error('Error creating member record:', error);
@@ -461,6 +526,14 @@ export default function DashboardPage() {
 
       const docRef = await addDoc(collection(db, 'groups', CURRENT_GROUP_ID, 'contributions'), contributionData);
       setContributions((previous) => [...previous, { id: docRef.id, ...contributionData }]);
+      await writeAuditLog({
+        action: 'Create Contribution',
+        module: 'Contributions',
+        actor: 'Treasurer',
+        targetId: docRef.id,
+        targetName: contributionData.memberName,
+        details: `Recorded ${contributionData.month} contribution for ${contributionData.memberName}; expected KES ${contributionData.expectedAmount}, paid KES ${contributionData.paidAmount}, balance KES ${contributionData.balance}.`,
+      });
       setNewContribution({
         memberName: '',
         month: currentMonthName(),
@@ -555,6 +628,13 @@ export default function DashboardPage() {
       );
 
       setContributions((previous) => [...previous, ...createdRows]);
+      await writeAuditLog({
+        action: 'Generate Monthly Rows',
+        module: 'Contributions',
+        actor: 'Treasurer',
+        targetName: month,
+        details: `Generated ${createdRows.length} monthly contribution row(s) for ${month}.`,
+      });
       setContributionMonthFilter(month);
       setContributionStatusFilter('All');
       alert(`Generated ${createdRows.length} monthly contribution row(s) for ${month}.`);
@@ -584,6 +664,14 @@ export default function DashboardPage() {
 
       const docRef = await addDoc(collection(db, 'groups', CURRENT_GROUP_ID, 'rounds'), roundData);
       setMerryGoRound((previous) => [...previous, { id: docRef.id, ...roundData }].sort((a, b) => a.roundNumber - b.roundNumber));
+      await writeAuditLog({
+        action: 'Create Merry-Go-Round Round',
+        module: 'Merry-Go-Round',
+        actor: 'Treasurer',
+        targetId: docRef.id,
+        targetName: roundData.recipientName,
+        details: `Scheduled round ${roundData.roundNumber} for ${roundData.recipientName}.`,
+      });
       setNewRound({ roundNumber: '', payoutDate: todayIso(), recipientName: '', payoutAmount: '', status: 'Upcoming' });
     } catch (error) {
       console.error('Error building schedule timeline:', error);
@@ -615,6 +703,14 @@ export default function DashboardPage() {
 
       const docRef = await addDoc(collection(db, 'groups', CURRENT_GROUP_ID, 'insurance'), policyData);
       setInsurancePolicies((previous) => [{ id: docRef.id, ...policyData }, ...previous]);
+      await writeAuditLog({
+        action: 'Create Insurance Policy',
+        module: 'Insurance',
+        actor: 'Admin',
+        targetId: docRef.id,
+        targetName: policyData.providerName,
+        details: `Created insurance policy for ${policyData.providerName}.`,
+      });
       setNewInsurancePolicy({
         providerName: '',
         policyNumber: '',
@@ -658,6 +754,14 @@ export default function DashboardPage() {
 
       const docRef = await addDoc(collection(db, 'groups', CURRENT_GROUP_ID, 'bereavedCases'), caseData);
       setBereavedCases((previous) => [{ id: docRef.id, ...caseData }, ...previous]);
+      await writeAuditLog({
+        action: 'Create Bereaved Case',
+        module: 'Bereaved Support',
+        actor: 'Admin',
+        targetId: docRef.id,
+        targetName: caseData.memberName,
+        details: `Created bereaved support case for ${caseData.memberName}.`,
+      });
       setNewBereavedCase({
         memberName: '',
         familyContact: '',
@@ -703,6 +807,14 @@ export default function DashboardPage() {
       });
 
       setMembers((previous) => previous.map((member) => (member.id === id ? { ...member, ...(editForm as Member) } : member)));
+      await writeAuditLog({
+        action: 'Update Member',
+        module: 'Members',
+        actor: 'Admin',
+        targetId: id,
+        targetName: editForm.name || 'Member',
+        details: `Updated member ${editForm.name || id}.`,
+      });
       setEditingMemberId(null);
     } catch (error) {
       console.error('Failed to commit member updates:', error);
@@ -711,10 +823,19 @@ export default function DashboardPage() {
   };
 
   const handleDeleteMember = async (id: string) => {
+    const targetMember = members.find((member) => member.id === id);
     if (!window.confirm('Remove this member from the database?')) return;
     try {
       await deleteDoc(doc(db, 'groups', CURRENT_GROUP_ID, 'members', id));
       setMembers((previous) => previous.filter((member) => member.id !== id));
+      await writeAuditLog({
+        action: 'Delete Member',
+        module: 'Members',
+        actor: 'Admin',
+        targetId: id,
+        targetName: targetMember?.name || 'Member',
+        details: `Deleted member ${targetMember?.name || id}.`,
+      });
     } catch (error) {
       console.error('Failed to delete member:', error);
       alert('Failed to delete member.');
@@ -797,6 +918,14 @@ export default function DashboardPage() {
         )
       );
 
+      await writeAuditLog({
+        action: 'Update Contribution',
+        module: 'Contributions',
+        actor: 'Treasurer',
+        targetId: id,
+        targetName: updatedContribution.memberName,
+        details: `Updated ${updatedContribution.month} contribution for ${updatedContribution.memberName}.`,
+      });
       cancelContributionEditing();
     } catch (error) {
       console.error('Failed to update contribution:', error);
@@ -845,6 +974,14 @@ export default function DashboardPage() {
             : contribution
         )
       );
+      await writeAuditLog({
+        action: 'Update Payment Status',
+        module: 'Contributions',
+        actor: 'Treasurer',
+        targetId: id,
+        targetName: targetContribution.memberName,
+        details: `Marked ${targetContribution.memberName}'s ${targetContribution.month} contribution as ${paymentStatus}.`,
+      });
     } catch (error) {
       console.error('Failed to update contribution status:', error);
       alert('Failed to update contribution status.');
@@ -900,6 +1037,14 @@ export default function DashboardPage() {
             : contribution
         )
       );
+      await writeAuditLog({
+        action: 'Update Payment Verification',
+        module: 'Contributions',
+        actor: verifiedBy || 'System',
+        targetId: id,
+        targetName: targetContribution.memberName,
+        details: `Set ${targetContribution.memberName}'s ${targetContribution.month} verification status to ${verificationStatus}. Notes: ${verificationNotes || 'None'}.`,
+      });
     } catch (error) {
       console.error('Failed to update payment verification:', error);
       alert('Failed to update payment verification.');
@@ -907,10 +1052,19 @@ export default function DashboardPage() {
   };
 
   const handleDeleteContribution = async (id: string) => {
+    const targetContribution = contributions.find((contribution) => contribution.id === id);
     if (!window.confirm('Delete this contribution record?')) return;
     try {
       await deleteDoc(doc(db, 'groups', CURRENT_GROUP_ID, 'contributions', id));
       setContributions((previous) => previous.filter((contribution) => contribution.id !== id));
+      await writeAuditLog({
+        action: 'Delete Contribution',
+        module: 'Contributions',
+        actor: 'Treasurer',
+        targetId: id,
+        targetName: targetContribution?.memberName || 'Contribution',
+        details: `Deleted ${targetContribution?.month || ''} contribution for ${targetContribution?.memberName || id}.`,
+      });
     } catch (error) {
       console.error('Failed to delete contribution:', error);
       alert('Failed to delete contribution.');
@@ -918,10 +1072,19 @@ export default function DashboardPage() {
   };
 
   const handleDeleteRound = async (id: string) => {
+    const targetRound = merryGoRound.find((round) => round.id === id);
     if (!window.confirm('Delete this merry-go-round round?')) return;
     try {
       await deleteDoc(doc(db, 'groups', CURRENT_GROUP_ID, 'rounds', id));
       setMerryGoRound((previous) => previous.filter((round) => round.id !== id));
+      await writeAuditLog({
+        action: 'Delete Merry-Go-Round Round',
+        module: 'Merry-Go-Round',
+        actor: 'Treasurer',
+        targetId: id,
+        targetName: targetRound?.recipientName || 'Round',
+        details: `Deleted merry-go-round round ${targetRound?.roundNumber || id}.`,
+      });
     } catch (error) {
       console.error('Failed to delete round:', error);
       alert('Failed to delete round.');
@@ -937,6 +1100,15 @@ export default function DashboardPage() {
         updatedAt: completedAt,
       });
       setMerryGoRound((previous) => previous.map((round) => (round.id === id ? { ...round, status: 'Completed', completedAt } : round)));
+      const targetRound = merryGoRound.find((round) => round.id === id);
+      await writeAuditLog({
+        action: 'Complete Merry-Go-Round Round',
+        module: 'Merry-Go-Round',
+        actor: 'Treasurer',
+        targetId: id,
+        targetName: targetRound?.recipientName || 'Round',
+        details: `Marked round ${targetRound?.roundNumber || id} as completed.`,
+      });
     } catch (error) {
       console.error('Failed to complete round:', error);
       alert('Failed to complete round.');
@@ -944,10 +1116,19 @@ export default function DashboardPage() {
   };
 
   const handleDeleteInsurancePolicy = async (id: string) => {
+    const targetPolicy = insurancePolicies.find((policy) => policy.id === id);
     if (!window.confirm('Delete this insurance provider policy record?')) return;
     try {
       await deleteDoc(doc(db, 'groups', CURRENT_GROUP_ID, 'insurance', id));
       setInsurancePolicies((previous) => previous.filter((policy) => policy.id !== id));
+      await writeAuditLog({
+        action: 'Delete Insurance Policy',
+        module: 'Insurance',
+        actor: 'Admin',
+        targetId: id,
+        targetName: targetPolicy?.providerName || 'Policy',
+        details: `Deleted insurance policy ${targetPolicy?.policyNumber || id}.`,
+      });
     } catch (error) {
       console.error('Failed to delete insurance policy:', error);
       alert('Failed to delete insurance policy.');
@@ -955,10 +1136,19 @@ export default function DashboardPage() {
   };
 
   const handleDeleteBereavedCase = async (id: string) => {
+    const targetCase = bereavedCases.find((caseItem) => caseItem.id === id);
     if (!window.confirm('Delete this bereaved family case?')) return;
     try {
       await deleteDoc(doc(db, 'groups', CURRENT_GROUP_ID, 'bereavedCases', id));
       setBereavedCases((previous) => previous.filter((caseItem) => caseItem.id !== id));
+      await writeAuditLog({
+        action: 'Delete Bereaved Case',
+        module: 'Bereaved Support',
+        actor: 'Admin',
+        targetId: id,
+        targetName: targetCase?.memberName || 'Bereaved Case',
+        details: `Deleted bereaved support case for ${targetCase?.memberName || id}.`,
+      });
     } catch (error) {
       console.error('Failed to delete bereaved case:', error);
       alert('Failed to delete bereaved case.');
@@ -973,14 +1163,23 @@ export default function DashboardPage() {
         updatedAt,
       });
       setBereavedCases((previous) => previous.map((caseItem) => (caseItem.id === id ? { ...caseItem, status: 'Closed', updatedAt } : caseItem)));
+      const targetCase = bereavedCases.find((caseItem) => caseItem.id === id);
+      await writeAuditLog({
+        action: 'Close Bereaved Case',
+        module: 'Bereaved Support',
+        actor: 'Admin',
+        targetId: id,
+        targetName: targetCase?.memberName || 'Bereaved Case',
+        details: `Marked bereaved support case for ${targetCase?.memberName || id} as closed.`,
+      });
     } catch (error) {
       console.error('Failed to close bereaved case:', error);
       alert('Failed to close bereaved family case.');
     }
   };
 
-  const availableContributionMonths = Array.from(
-    new Set(contributions.map((contribution) => contribution.month).filter(Boolean))
+  const availableContributionMonths: string[] = Array.from(
+    new Set<string>(contributions.map((contribution) => contribution.month).filter(Boolean))
   ).sort((firstMonth, secondMonth) => firstMonth.localeCompare(secondMonth));
 
   const normalizedContributionSearch = contributionMemberSearch.trim().toLowerCase();
@@ -1021,6 +1220,37 @@ export default function DashboardPage() {
     setContributionVerificationFilter('All');
   };
 
+  const downloadCsvFile = (
+    filename: string,
+    headers: string[],
+    rows: Array<Array<string | number | null | undefined>>,
+    auditInfo?: { action: string; module: string; details: string }
+  ) => {
+    const csv = [
+      headers.join(','),
+      ...rows.map((row) => row.map((value) => `"${String(value ?? '').replaceAll('"', '""')}"`).join(',')),
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+
+    if (auditInfo) {
+      void writeAuditLog({
+        action: auditInfo.action,
+        module: auditInfo.module,
+        actor: 'System',
+        targetName: filename,
+        details: auditInfo.details,
+      });
+    }
+  };
+
   const exportContributionsCsv = () => {
     const headers = ['Member Name', 'Month', 'Welfare', 'Merry Go Round', 'Insurance', 'Bereaved Family', 'Expected Amount', 'Paid Amount', 'Balance', 'Payment Status', 'Payment Date', 'Verification Status', 'Verified By', 'Verified At', 'Verification Notes'];
     const exportRows = filteredContributions.length > 0 ? filteredContributions : contributions;
@@ -1041,16 +1271,14 @@ export default function DashboardPage() {
       contribution.verifiedAt || '',
       contribution.verificationNotes || '',
     ]);
-    const csv = [headers.join(','), ...rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(','))].join('\\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'jirani-monthly-contributions.csv';
-    link.click();
-    URL.revokeObjectURL(url);
-  };
 
+    downloadCsvFile(
+      'jirani-monthly-contributions.csv',
+      headers,
+      rows,
+      { action: 'Export Report', module: 'Reports', details: `Exported Contributions CSV with ${exportRows.length} row(s).` }
+    );
+  };
 
   const exportMemberStatementCsv = () => {
     if (!statementMemberName) {
@@ -1077,66 +1305,33 @@ export default function DashboardPage() {
       contribution.verificationNotes || '',
     ]);
 
-    const totalsRow = [
-      statementMemberName,
-      'TOTAL',
-      '',
-      '',
-      '',
-      '',
-      statementExpectedTotal,
-      statementPaidTotal,
-      statementBalanceTotal,
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
-    ];
-
-    const csv = [
-      headers.join(','),
-      ...rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(',')),
-      totalsRow.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(','),
-    ].join('\\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
+    const totalsRow = [statementMemberName, 'TOTAL', '', '', '', '', statementExpectedTotal, statementPaidTotal, statementBalanceTotal, '', '', '', '', '', ''];
     const safeMemberName = statementMemberName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'member';
 
-    link.href = url;
-    link.download = `jirani-member-statement-${safeMemberName}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    downloadCsvFile(
+      `jirani-member-statement-${safeMemberName}.csv`,
+      headers,
+      [...rows, totalsRow],
+      { action: 'Export Report', module: 'Reports', details: `Exported member statement for ${statementMemberName} with ${statementContributions.length} contribution row(s).` }
+    );
   };
 
   const printDashboardReport = () => {
     window.print();
-  };
-
-
-  const downloadCsvFile = (filename: string, headers: string[], rows: Array<Array<string | number | null | undefined>>) => {
-    const csv = [
-      headers.join(','),
-      ...rows.map((row) => row.map((value) => `"${String(value ?? '').replaceAll('"', '""')}"`).join(',')),
-    ].join('\n');
-
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-
-    link.href = url;
-    link.download = filename;
-    link.click();
-    URL.revokeObjectURL(url);
+    void writeAuditLog({
+      action: 'Print Report',
+      module: 'Reports',
+      actor: 'System',
+      details: 'Printed dashboard report.',
+    });
   };
 
   const exportMembersCsv = () => {
     downloadCsvFile(
       'jirani-members-report.csv',
       ['Member Name', 'Email', 'Contact', 'Insurance Paid', 'Status', 'Join Date'],
-      members.map((member) => [member.name, member.email, member.contact, member.insurancePaid, member.status, member.joinDate])
+      members.map((member) => [member.name, member.email, member.contact, member.insurancePaid, member.status, member.joinDate]),
+      { action: 'Export Report', module: 'Reports', details: `Exported Members CSV with ${members.length} row(s).` }
     );
   };
 
@@ -1155,7 +1350,8 @@ export default function DashboardPage() {
         contribution.paymentStatus,
         normalizeVerificationStatus(contribution.verificationStatus),
         contribution.paymentDate,
-      ])
+      ]),
+      { action: 'Export Report', module: 'Reports', details: `Exported Arrears CSV with ${arrearsRows.length} row(s).` }
     );
   };
 
@@ -1174,7 +1370,8 @@ export default function DashboardPage() {
         contribution.verifiedBy || '',
         contribution.verifiedAt || '',
         contribution.verificationNotes || '',
-      ])
+      ]),
+      { action: 'Export Report', module: 'Reports', details: `Exported Payment Verification CSV with ${contributions.length} row(s).` }
     );
   };
 
@@ -1182,7 +1379,8 @@ export default function DashboardPage() {
     downloadCsvFile(
       'jirani-merry-go-round-report.csv',
       ['Round Number', 'Recipient Name', 'Payout Date', 'Payout Amount', 'Status', 'Completed At'],
-      merryGoRound.map((round) => [round.roundNumber, round.recipientName, round.payoutDate, round.payoutAmount, round.status, round.completedAt || ''])
+      merryGoRound.map((round) => [round.roundNumber, round.recipientName, round.payoutDate, round.payoutAmount, round.status, round.completedAt || '']),
+      { action: 'Export Report', module: 'Reports', details: `Exported Merry-Go-Round CSV with ${merryGoRound.length} row(s).` }
     );
   };
 
@@ -1200,7 +1398,8 @@ export default function DashboardPage() {
         policy.providerContribution,
         policy.lastRespectBenefit,
         policy.status,
-      ])
+      ]),
+      { action: 'Export Report', module: 'Reports', details: `Exported Insurance CSV with ${insurancePolicies.length} row(s).` }
     );
   };
 
@@ -1218,7 +1417,8 @@ export default function DashboardPage() {
         Math.max(caseItem.targetAmount - caseItem.collectedAmount, 0),
         caseItem.status,
         caseItem.notes,
-      ])
+      ]),
+      { action: 'Export Report', module: 'Reports', details: `Exported Bereaved Cases CSV with ${bereavedCases.length} row(s).` }
     );
   };
 
@@ -1241,12 +1441,23 @@ export default function DashboardPage() {
         ['Last Respect Benefit', totalLastRespectBenefit],
         ['Bereaved Target', totalBereavedTarget],
         ['Bereaved Collected', totalBereavedCollected],
-      ]
+        ['Audit Logs Loaded', auditLogs.length],
+      ],
+      { action: 'Export Report', module: 'Reports', details: 'Exported Dashboard Summary CSV.' }
     );
   };
 
-  const statementMemberOptions = Array.from(
-    new Set([
+  const exportAuditLogsCsv = () => {
+    downloadCsvFile(
+      'jirani-audit-logs-report.csv',
+      ['Date', 'Action', 'Module', 'Actor', 'Target Name', 'Target ID', 'Details'],
+      filteredAuditLogs.map((log) => [log.createdAt, log.action, log.module, log.actor, log.targetName || '', log.targetId || '', log.details]),
+      { action: 'Export Report', module: 'Reports', details: `Exported Audit Logs CSV with ${filteredAuditLogs.length} row(s).` }
+    );
+  };
+
+  const statementMemberOptions: string[] = Array.from(
+    new Set<string>([
       ...members.map((member) => member.name.trim()),
       ...contributions.map((contribution) => contribution.memberName.trim()),
     ].filter(Boolean))
@@ -1299,6 +1510,21 @@ export default function DashboardPage() {
   const totalLastRespectBenefit = insurancePolicies.reduce((sum, policy) => sum + policy.lastRespectBenefit, 0);
   const totalBereavedTarget = bereavedCases.reduce((sum, caseItem) => sum + caseItem.targetAmount, 0);
   const totalBereavedCollected = bereavedCases.reduce((sum, caseItem) => sum + caseItem.collectedAmount, 0);
+  const auditModules: string[] = Array.from(new Set<string>(auditLogs.map((log) => log.module).filter(Boolean))).sort((firstModule, secondModule) => firstModule.localeCompare(secondModule));
+  const normalizedAuditSearch = auditSearch.trim().toLowerCase();
+  const filteredAuditLogs = auditLogs.filter((log) => {
+    const matchesModule = auditModuleFilter === 'All' || log.module === auditModuleFilter;
+    const matchesSearch =
+      normalizedAuditSearch.length === 0 ||
+      log.action.toLowerCase().includes(normalizedAuditSearch) ||
+      log.module.toLowerCase().includes(normalizedAuditSearch) ||
+      log.actor.toLowerCase().includes(normalizedAuditSearch) ||
+      (log.targetName || '').toLowerCase().includes(normalizedAuditSearch) ||
+      log.details.toLowerCase().includes(normalizedAuditSearch);
+
+    return matchesModule && matchesSearch;
+  });
+  const recentAuditCount = auditLogs.filter((log) => log.createdAt.slice(0, 10) === todayIso()).length;
 
   const formatCurrency = (amount: number) => `KES ${amount.toLocaleString('en-US')}`;
 
@@ -1409,12 +1635,101 @@ export default function DashboardPage() {
                   Bereaved Cases CSV
                   <span className="mt-1 block text-xs font-normal text-slate-300">Family support targets and collections</span>
                 </button>
+                <button type="button" onClick={exportAuditLogsCsv} className="rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-3 text-left text-sm font-semibold text-slate-100 transition hover:bg-white/[0.13]">
+                  Audit Logs CSV
+                  <span className="mt-1 block text-xs font-normal text-slate-300">Action history and verification trail</span>
+                </button>
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4 text-sm text-slate-300">
                 <p className="font-semibold text-white">Report note</p>
                 <p className="mt-1">The Contributions CSV respects the active Monthly Contributors filters. Other exports use their full module records.</p>
               </div>
+            </div>
+          }
+        />
+
+        <Module
+          title="Audit Logs"
+          content={
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Total Logs</p>
+                  <p className="mt-2 text-2xl font-black text-white">{auditLogs.length}</p>
+                  <p className="mt-1 text-xs text-slate-400">Latest 100 audit records loaded</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Today</p>
+                  <p className="mt-2 text-2xl font-black text-cyan-300">{recentAuditCount}</p>
+                  <p className="mt-1 text-xs text-slate-400">Actions recorded today</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Filtered</p>
+                  <p className="mt-2 text-2xl font-black text-emerald-300">{filteredAuditLogs.length}</p>
+                  <p className="mt-1 text-xs text-slate-400">Rows matching current filters</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <input
+                  type="search"
+                  value={auditSearch}
+                  onChange={(event) => setAuditSearch(event.target.value)}
+                  placeholder="Search action, member, module, note..."
+                  className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none"
+                />
+                <select
+                  value={auditModuleFilter}
+                  onChange={(event) => setAuditModuleFilter(event.target.value)}
+                  className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white focus:border-cyan-400 focus:outline-none"
+                >
+                  <option className="bg-slate-900" value="All">All modules</option>
+                  {auditModules.map((moduleName) => (
+                    <option className="bg-slate-900" key={moduleName} value={moduleName}>{moduleName}</option>
+                  ))}
+                </select>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => { setAuditSearch(''); setAuditModuleFilter('All'); }} className="flex-1 rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.13]">
+                    Clear
+                  </button>
+                  <button type="button" onClick={exportAuditLogsCsv} className="flex-1 rounded-2xl border border-emerald-300/20 bg-emerald-400/20 px-4 py-2 text-sm font-semibold text-emerald-50 transition hover:bg-emerald-400/30">
+                    Export CSV
+                  </button>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-white/10 text-sm">
+                  <thead className="text-left text-xs uppercase tracking-[0.16em] text-slate-400">
+                    <tr>
+                      <th className="px-3 py-3">Date</th>
+                      <th className="px-3 py-3">Action</th>
+                      <th className="px-3 py-3">Module</th>
+                      <th className="px-3 py-3">Actor</th>
+                      <th className="px-3 py-3">Target</th>
+                      <th className="px-3 py-3">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/10">
+                    {filteredAuditLogs.slice(0, 25).map((log) => (
+                      <tr key={log.id} className="transition hover:bg-white/[0.04]">
+                        <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-300">{new Date(log.createdAt).toLocaleString('en-KE')}</td>
+                        <td className="whitespace-nowrap px-3 py-3 font-semibold text-white">{log.action}</td>
+                        <td className="whitespace-nowrap px-3 py-3 text-cyan-200">{log.module}</td>
+                        <td className="whitespace-nowrap px-3 py-3 text-slate-300">{log.actor}</td>
+                        <td className="whitespace-nowrap px-3 py-3 text-slate-300">{log.targetName || log.targetId || '—'}</td>
+                        <td className="min-w-[280px] px-3 py-3 text-slate-300">{log.details}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {filteredAuditLogs.length === 0 ? (
+                  <p className="px-3 py-5 text-center text-sm text-slate-400">No audit log records match the current filters.</p>
+                ) : null}
+              </div>
+
+              <p className="text-xs text-slate-400">Audit logs are stored in Firestore at groups/{CURRENT_GROUP_ID}/auditLogs. New actions are recorded from this dashboard going forward.</p>
             </div>
           }
         />
