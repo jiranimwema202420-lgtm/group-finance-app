@@ -26,6 +26,7 @@ type UserRole = 'Guest' | 'Member' | 'Chairperson' | 'Treasurer' | 'Admin';
 type ProtectedRole = Exclude<UserRole, 'Guest'>;
 type ManagedUserRole = Exclude<UserRole, 'Guest'>;
 type MembershipStatus = 'active' | 'inactive' | 'disabled';
+type AccessRequestStatus = 'Pending' | 'Approved' | 'Rejected';
 type VerificationStatus = 'Unverified' | 'Verified' | 'Rejected';
 type RoundStatus = 'Completed' | 'Current' | 'Upcoming';
 type InsuranceStatus = 'Active' | 'Pending' | 'Expired';
@@ -144,6 +145,24 @@ interface RoleMembership {
   updatedBy?: string;
 }
 
+interface AccessRequest {
+  id: string;
+  uid: string;
+  email: string;
+  displayName: string;
+  phone: string;
+  reason: string;
+  requestedRole: ManagedUserRole;
+  approvedRole?: ManagedUserRole;
+  status: AccessRequestStatus;
+  groupId: string;
+  adminNotes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+}
+
 interface StatCardProps {
   title: string;
   value: string | number;
@@ -196,7 +215,7 @@ const resolveSignedInRole = async (firebaseUser: User): Promise<UserRole> => {
     }
   }
 
-  return 'Member';
+  return 'Guest';
 };
 
 
@@ -215,6 +234,32 @@ const normalizeManagedRole = (value: unknown): ManagedUserRole => {
   const role = normalizeUserRole(value);
   return role === 'Guest' ? 'Member' : role;
 };
+
+const normalizeAccessRequestStatus = (value: unknown): AccessRequestStatus => {
+  const normalized = String(value || 'Pending').trim().toLowerCase();
+
+  if (normalized === 'approved') return 'Approved';
+  if (normalized === 'rejected' || normalized === 'declined') return 'Rejected';
+  return 'Pending';
+};
+
+const buildAccessRequestFromData = (id: string, data: Record<string, unknown>): AccessRequest => ({
+  id,
+  uid: typeof data.uid === 'string' ? data.uid : id,
+  email: typeof data.email === 'string' ? data.email : '',
+  displayName: typeof data.displayName === 'string' ? data.displayName : '',
+  phone: typeof data.phone === 'string' ? data.phone : '',
+  reason: typeof data.reason === 'string' ? data.reason : '',
+  requestedRole: normalizeManagedRole(data.requestedRole || data.role),
+  approvedRole: data.approvedRole ? normalizeManagedRole(data.approvedRole) : undefined,
+  status: normalizeAccessRequestStatus(data.status),
+  groupId: typeof data.groupId === 'string' ? data.groupId : CURRENT_GROUP_ID,
+  adminNotes: typeof data.adminNotes === 'string' ? data.adminNotes : '',
+  createdAt: typeof data.createdAt === 'string' ? data.createdAt : undefined,
+  updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined,
+  reviewedAt: typeof data.reviewedAt === 'string' ? data.reviewedAt : undefined,
+  reviewedBy: typeof data.reviewedBy === 'string' ? data.reviewedBy : undefined,
+});
 
 const todayIso = () => new Date().toISOString().split('T')[0];
 const oneYearFromTodayIso = () => {
@@ -317,8 +362,12 @@ export default function DashboardPage() {
   const [bereavedCases, setBereavedCases] = useState<BereavedCase[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [roleMemberships, setRoleMemberships] = useState<RoleMembership[]>([]);
+  const [accessRequests, setAccessRequests] = useState<AccessRequest[]>([]);
   const [roleSearch, setRoleSearch] = useState('');
   const [roleStatusFilter, setRoleStatusFilter] = useState<'All' | MembershipStatus>('All');
+  const [accessRequestSearch, setAccessRequestSearch] = useState('');
+  const [accessRequestStatusFilter, setAccessRequestStatusFilter] = useState<'All' | AccessRequestStatus>('All');
+  const [accessApprovalRoles, setAccessApprovalRoles] = useState<Record<string, ManagedUserRole>>({});
   const [auditModuleFilter, setAuditModuleFilter] = useState('All');
   const [auditSearch, setAuditSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -344,6 +393,8 @@ export default function DashboardPage() {
   const [submittingInsurance, setSubmittingInsurance] = useState(false);
   const [submittingBereavedCase, setSubmittingBereavedCase] = useState(false);
   const [submittingRoleMember, setSubmittingRoleMember] = useState(false);
+  const [submittingAccessRequest, setSubmittingAccessRequest] = useState(false);
+  const [processingAccessRequestId, setProcessingAccessRequestId] = useState<string | null>(null);
 
   const [newMember, setNewMember] = useState({
     name: '',
@@ -412,6 +463,13 @@ export default function DashboardPage() {
     displayName: '',
     role: 'Member' as ManagedUserRole,
     status: 'active' as MembershipStatus,
+  });
+
+  const [accessRequestForm, setAccessRequestForm] = useState({
+    displayName: '',
+    phone: '',
+    reason: '',
+    requestedRole: 'Member' as ManagedUserRole,
   });
 
   const actorName = currentUser?.displayName || currentUser?.email || currentUserRole;
@@ -505,7 +563,7 @@ export default function DashboardPage() {
         setCurrentUserRole(resolvedRole);
       } catch (error) {
         console.error('Failed to resolve user role:', error);
-        setCurrentUserRole('Member');
+        setCurrentUserRole('Guest');
       } finally {
         setAuthLoading(false);
       }
@@ -690,6 +748,37 @@ export default function DashboardPage() {
     fetchRoleMemberships();
   }, [currentUser, canManageMembers]);
 
+  useEffect(() => {
+    async function fetchAccessRequests() {
+      if (!currentUser) {
+        setAccessRequests([]);
+        return;
+      }
+
+      try {
+        if (canManageMembers) {
+          const requestsSnapshot = await getDocs(collection(db, 'groups', CURRENT_GROUP_ID, 'accessRequests'));
+          const requestsList = requestsSnapshot.docs.map((documentSnapshot) => buildAccessRequestFromData(documentSnapshot.id, documentSnapshot.data()));
+          setAccessRequests(requestsList.sort((first, second) => (second.createdAt || '').localeCompare(first.createdAt || '')));
+          return;
+        }
+
+        if (currentUserRole === 'Guest') {
+          const requestSnapshot = await getDoc(doc(db, 'groups', CURRENT_GROUP_ID, 'accessRequests', currentUser.uid));
+          setAccessRequests(requestSnapshot.exists() ? [buildAccessRequestFromData(requestSnapshot.id, requestSnapshot.data())] : []);
+          return;
+        }
+
+        setAccessRequests([]);
+      } catch (error) {
+        console.error('Failed to load access requests:', error);
+        setAccessRequests([]);
+      }
+    }
+
+    fetchAccessRequests();
+  }, [currentUser, currentUserRole, canManageMembers]);
+
   const upsertRoleMembershipState = (membership: RoleMembership) => {
     setRoleMemberships((previous) => {
       const next = previous.some((item) => item.uid === membership.uid)
@@ -709,6 +798,8 @@ export default function DashboardPage() {
       status: membership.status,
       membershipStatus: membership.status,
       groupId: CURRENT_GROUP_ID,
+      createdAt: membership.createdAt || new Date().toISOString(),
+      createdBy: membership.createdBy || actorName,
       updatedAt: new Date().toISOString(),
       updatedBy: actorName,
     };
@@ -777,6 +868,145 @@ export default function DashboardPage() {
       role: 'Admin',
       status: 'active',
     });
+  };
+
+
+  const handleAccessRequestSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!currentUser) {
+      alert('Please sign in before requesting access.');
+      return;
+    }
+
+    const displayName = accessRequestForm.displayName.trim() || currentUser.displayName || currentUser.email || '';
+    const phone = accessRequestForm.phone.trim();
+    const reason = accessRequestForm.reason.trim();
+
+    if (!displayName || !phone || !reason) {
+      alert('Enter your name, phone number, and reason for requesting access.');
+      return;
+    }
+
+    const existingRequest = accessRequests.find((request) => request.uid === currentUser.uid);
+    const createdAt = existingRequest?.createdAt || new Date().toISOString();
+    const requestData = {
+      uid: currentUser.uid,
+      email: currentUser.email || '',
+      displayName,
+      phone,
+      reason,
+      requestedRole: accessRequestForm.requestedRole,
+      status: 'Pending' as AccessRequestStatus,
+      groupId: CURRENT_GROUP_ID,
+      createdAt,
+      updatedAt: new Date().toISOString(),
+    };
+
+    setSubmittingAccessRequest(true);
+    try {
+      await setDoc(doc(db, 'groups', CURRENT_GROUP_ID, 'accessRequests', currentUser.uid), requestData, { merge: true });
+      setAccessRequests([{ id: currentUser.uid, ...requestData }]);
+      alert('Your access request has been sent to the Admin.');
+    } catch (error) {
+      console.error('Failed to submit access request:', error);
+      alert('Failed to submit access request. Confirm Firestore Step 12 rules are deployed.');
+    } finally {
+      setSubmittingAccessRequest(false);
+    }
+  };
+
+  const handleApproveAccessRequest = async (requestItem: AccessRequest) => {
+    if (!requireRole('Admin', 'approve access requests')) return;
+
+    const role = accessApprovalRoles[requestItem.id] || requestItem.requestedRole || 'Member';
+    const now = new Date().toISOString();
+    const membership: RoleMembership = {
+      id: requestItem.uid,
+      uid: requestItem.uid,
+      email: requestItem.email,
+      displayName: requestItem.displayName,
+      role,
+      status: 'active',
+      groupId: CURRENT_GROUP_ID,
+      createdAt: now,
+      updatedAt: now,
+      createdBy: actorName,
+      updatedBy: actorName,
+    };
+
+    setProcessingAccessRequestId(requestItem.id);
+    try {
+      await saveRoleMembership(membership);
+      await updateDoc(doc(db, 'groups', CURRENT_GROUP_ID, 'accessRequests', requestItem.id), {
+        status: 'Approved',
+        approvedRole: role,
+        reviewedAt: now,
+        reviewedBy: actorName,
+        adminNotes: `Approved as ${role}`,
+        updatedAt: now,
+      });
+
+      upsertRoleMembershipState(membership);
+      setAccessRequests((previous) =>
+        previous.map((item) =>
+          item.id === requestItem.id
+            ? { ...item, status: 'Approved', approvedRole: role, reviewedAt: now, reviewedBy: actorName, adminNotes: `Approved as ${role}`, updatedAt: now }
+            : item
+        )
+      );
+      await writeAuditLog({
+        action: 'Approve Access Request',
+        module: 'Access Requests',
+        targetId: requestItem.uid,
+        targetName: requestItem.email || requestItem.displayName,
+        details: `${requestItem.displayName || requestItem.email} approved as ${role}.`,
+      });
+      alert(`${requestItem.displayName || requestItem.email} approved as ${role}.`);
+    } catch (error) {
+      console.error('Failed to approve access request:', error);
+      alert('Failed to approve access request. Confirm Step 12 rules are deployed.');
+    } finally {
+      setProcessingAccessRequestId(null);
+    }
+  };
+
+  const handleRejectAccessRequest = async (requestItem: AccessRequest) => {
+    if (!requireRole('Admin', 'reject access requests')) return;
+
+    const adminNotes = window.prompt('Reason for rejection?', 'Not approved at this time.') || 'Rejected by Admin';
+    const now = new Date().toISOString();
+
+    setProcessingAccessRequestId(requestItem.id);
+    try {
+      await updateDoc(doc(db, 'groups', CURRENT_GROUP_ID, 'accessRequests', requestItem.id), {
+        status: 'Rejected',
+        reviewedAt: now,
+        reviewedBy: actorName,
+        adminNotes,
+        updatedAt: now,
+      });
+
+      setAccessRequests((previous) =>
+        previous.map((item) =>
+          item.id === requestItem.id
+            ? { ...item, status: 'Rejected', reviewedAt: now, reviewedBy: actorName, adminNotes, updatedAt: now }
+            : item
+        )
+      );
+      await writeAuditLog({
+        action: 'Reject Access Request',
+        module: 'Access Requests',
+        targetId: requestItem.uid,
+        targetName: requestItem.email || requestItem.displayName,
+        details: `${requestItem.displayName || requestItem.email} rejected. Reason: ${adminNotes}`,
+      });
+    } catch (error) {
+      console.error('Failed to reject access request:', error);
+      alert('Failed to reject access request.');
+    } finally {
+      setProcessingAccessRequestId(null);
+    }
   };
 
   const handleRoleChange = async (membership: RoleMembership, role: ManagedUserRole) => {
@@ -1976,6 +2206,17 @@ export default function DashboardPage() {
   const activeRoleMembershipCount = roleMemberships.filter((membership) => membership.status === 'active').length;
   const adminRoleMembershipCount = roleMemberships.filter((membership) => membership.status === 'active' && membership.role === 'Admin').length + (ADMIN_EMAILS.includes(currentUser?.email?.trim().toLowerCase() || '') ? 1 : 0);
   const treasurerRoleMembershipCount = roleMemberships.filter((membership) => membership.status === 'active' && membership.role === 'Treasurer').length;
+  const normalizedAccessRequestSearch = accessRequestSearch.trim().toLowerCase();
+  const filteredAccessRequests = accessRequests.filter((requestItem) => {
+    const matchesStatus = accessRequestStatusFilter === 'All' || requestItem.status === accessRequestStatusFilter;
+    const searchable = `${requestItem.uid} ${requestItem.email} ${requestItem.displayName} ${requestItem.phone} ${requestItem.reason} ${requestItem.requestedRole} ${requestItem.status}`.toLowerCase();
+    const matchesSearch = normalizedAccessRequestSearch.length === 0 || searchable.includes(normalizedAccessRequestSearch);
+    return matchesStatus && matchesSearch;
+  });
+  const pendingAccessRequestCount = accessRequests.filter((requestItem) => requestItem.status === 'Pending').length;
+  const approvedAccessRequestCount = accessRequests.filter((requestItem) => requestItem.status === 'Approved').length;
+  const rejectedAccessRequestCount = accessRequests.filter((requestItem) => requestItem.status === 'Rejected').length;
+  const myAccessRequest = currentUser ? accessRequests.find((requestItem) => requestItem.uid === currentUser.uid) : undefined;
 
   const formatCurrency = (amount: number) => `KES ${amount.toLocaleString('en-US')}`;
 
@@ -2000,6 +2241,78 @@ export default function DashboardPage() {
           <button onClick={handleSignIn} className="mt-6 w-full rounded-2xl border border-cyan-300/30 bg-cyan-400/20 px-4 py-3 text-sm font-bold text-cyan-50 shadow-lg shadow-cyan-950/20 backdrop-blur-xl transition hover:bg-cyan-400/30" type="button">
             Sign in with Google
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (currentUserRole === 'Guest') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.22),_transparent_34%),radial-gradient(circle_at_bottom_right,_rgba(99,102,241,0.24),_transparent_38%),linear-gradient(135deg,#020617,#0f172a_45%,#111827)] px-4 py-8 text-slate-100">
+        <div className="w-full max-w-3xl rounded-[2rem] border border-white/10 bg-white/[0.08] p-6 shadow-2xl shadow-black/25 ring-1 ring-white/5 backdrop-blur-2xl">
+          <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-300">Jirani Finance App</p>
+              <h1 className="mt-2 text-3xl font-black tracking-tight text-white">Request Access</h1>
+              <p className="mt-2 text-sm leading-6 text-slate-300">You are signed in, but no active role has been assigned to this account yet. Submit this request so an Admin can approve you.</p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-200">
+              <p className="font-semibold text-white">{currentUser.displayName || currentUser.email}</p>
+              <p className="text-xs text-slate-400">{currentUser.email}</p>
+              <button onClick={handleSignOut} className="mt-3 rounded-xl border border-rose-300/20 bg-rose-400/15 px-3 py-1 text-xs font-semibold text-rose-100 transition hover:bg-rose-400/25" type="button">Sign Out</button>
+            </div>
+          </div>
+
+          {myAccessRequest ? (
+            <div className="mb-6 rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4 text-sm text-cyan-50">
+              <p className="font-bold">Current request: {myAccessRequest.status}</p>
+              <p className="mt-1 text-cyan-100/80">Requested role: {myAccessRequest.requestedRole}</p>
+              <p className="mt-1 text-cyan-100/80">Submitted: {myAccessRequest.createdAt ? new Date(myAccessRequest.createdAt).toLocaleString('en-KE') : 'Not recorded'}</p>
+              {myAccessRequest.adminNotes ? <p className="mt-1 text-cyan-100/80">Admin note: {myAccessRequest.adminNotes}</p> : null}
+            </div>
+          ) : null}
+
+          <form onSubmit={handleAccessRequestSubmit} className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <input
+              value={accessRequestForm.displayName}
+              onChange={(event) => setAccessRequestForm((previous) => ({ ...previous, displayName: event.target.value }))}
+              placeholder={currentUser.displayName || 'Full name'}
+              className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none"
+            />
+            <input
+              value={accessRequestForm.phone}
+              onChange={(event) => setAccessRequestForm((previous) => ({ ...previous, phone: event.target.value }))}
+              placeholder="Phone number"
+              className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none"
+            />
+            <select
+              value={accessRequestForm.requestedRole}
+              onChange={(event) => setAccessRequestForm((previous) => ({ ...previous, requestedRole: event.target.value as ManagedUserRole }))}
+              className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white focus:border-cyan-400 focus:outline-none"
+            >
+              {managedRoleOptions.map((role) => (
+                <option className="bg-slate-900" key={role} value={role}>{role}</option>
+              ))}
+            </select>
+            <input
+              value={currentUser.email || ''}
+              disabled
+              className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-3 text-sm text-slate-300"
+            />
+            <textarea
+              value={accessRequestForm.reason}
+              onChange={(event) => setAccessRequestForm((previous) => ({ ...previous, reason: event.target.value }))}
+              placeholder="Why do you need access? Example: I am a registered group member."
+              className="min-h-28 rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none md:col-span-2"
+            />
+            <button
+              type="submit"
+              disabled={submittingAccessRequest}
+              className="rounded-2xl border border-cyan-300/20 bg-cyan-400/20 px-4 py-3 text-sm font-bold text-cyan-50 transition hover:bg-cyan-400/30 disabled:cursor-not-allowed disabled:opacity-50 md:col-span-2"
+            >
+              {submittingAccessRequest ? 'Submitting Request...' : myAccessRequest?.status === 'Pending' ? 'Update Pending Request' : 'Submit Access Request'}
+            </button>
+          </form>
         </div>
       </div>
     );
@@ -2196,7 +2509,107 @@ export default function DashboardPage() {
 
                 <div className="rounded-2xl border border-amber-300/20 bg-amber-400/10 p-4 text-sm text-amber-50">
                   <p className="font-semibold">How to add another user</p>
-                  <p className="mt-1 text-amber-100/80">Ask the user to sign in once, then copy their Firebase Authentication UID from Firebase Console &gt; Authentication &gt; Users. Add that UID here with their email and role.</p>
+                  <p className="mt-1 text-amber-100/80">Users can now sign in and submit an Access Request. Admins can approve them from the Access Requests module without copying Firebase UIDs manually.</p>
+                </div>
+              </div>
+            }
+          />
+        ) : null}
+
+        {canManageMembers ? (
+          <Module
+            title="Access Requests"
+            content={
+              <div className="space-y-5">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                  <StatCard title="Pending Requests" value={pendingAccessRequestCount} detail="Awaiting Admin approval" />
+                  <StatCard title="Approved Requests" value={approvedAccessRequestCount} detail="Converted to active roles" />
+                  <StatCard title="Rejected Requests" value={rejectedAccessRequestCount} detail="Declined access requests" />
+                  <StatCard title="Visible Requests" value={filteredAccessRequests.length} detail="After current filters" />
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <input
+                    type="search"
+                    value={accessRequestSearch}
+                    onChange={(event) => setAccessRequestSearch(event.target.value)}
+                    placeholder="Search name, email, phone, reason..."
+                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none md:col-span-2"
+                  />
+                  <select
+                    value={accessRequestStatusFilter}
+                    onChange={(event) => setAccessRequestStatusFilter(event.target.value as 'All' | AccessRequestStatus)}
+                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white focus:border-cyan-400 focus:outline-none"
+                  >
+                    <option className="bg-slate-900" value="All">All request statuses</option>
+                    <option className="bg-slate-900" value="Pending">Pending</option>
+                    <option className="bg-slate-900" value="Approved">Approved</option>
+                    <option className="bg-slate-900" value="Rejected">Rejected</option>
+                  </select>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-white/10 text-sm">
+                    <thead className="text-left text-xs uppercase tracking-[0.16em] text-slate-400">
+                      <tr>
+                        <th className="px-3 py-3">Requester</th>
+                        <th className="px-3 py-3">Requested Role</th>
+                        <th className="px-3 py-3">Status</th>
+                        <th className="px-3 py-3">Reason</th>
+                        <th className="px-3 py-3">Approve As</th>
+                        <th className="px-3 py-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/10">
+                      {filteredAccessRequests.map((requestItem) => (
+                        <tr key={requestItem.id} className="transition hover:bg-white/[0.04]">
+                          <td className="px-3 py-3">
+                            <p className="font-semibold text-white">{requestItem.displayName || requestItem.email || 'Unnamed requester'}</p>
+                            <p className="text-xs text-slate-400">{requestItem.email || 'No email'} • {requestItem.phone || 'No phone'}</p>
+                            <p className="max-w-[220px] truncate font-mono text-[11px] text-slate-500" title={requestItem.uid}>{requestItem.uid}</p>
+                          </td>
+                          <td className="px-3 py-3 text-slate-200">{requestItem.requestedRole}</td>
+                          <td className="px-3 py-3"><span className="rounded-full border border-white/10 bg-white/[0.08] px-3 py-1 text-xs font-semibold text-slate-100">{requestItem.status}</span></td>
+                          <td className="max-w-[300px] px-3 py-3 text-slate-300">{requestItem.reason}</td>
+                          <td className="px-3 py-3">
+                            <select
+                              value={accessApprovalRoles[requestItem.id] || requestItem.requestedRole || 'Member'}
+                              onChange={(event) => setAccessApprovalRoles((previous) => ({ ...previous, [requestItem.id]: event.target.value as ManagedUserRole }))}
+                              disabled={requestItem.status !== 'Pending'}
+                              className="rounded-xl border border-white/10 bg-white/[0.08] px-2 py-1 text-xs text-white focus:border-cyan-400 focus:outline-none disabled:opacity-50"
+                            >
+                              {managedRoleOptions.map((role) => (
+                                <option className="bg-slate-900" key={role} value={role}>{role}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="px-3 py-3">
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleApproveAccessRequest(requestItem)}
+                                disabled={requestItem.status !== 'Pending' || processingAccessRequestId === requestItem.id}
+                                className="rounded-xl border border-emerald-300/20 bg-emerald-400/15 px-3 py-1 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-400/25 disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRejectAccessRequest(requestItem)}
+                                disabled={requestItem.status !== 'Pending' || processingAccessRequestId === requestItem.id}
+                                className="rounded-xl border border-rose-300/20 bg-rose-400/15 px-3 py-1 text-xs font-semibold text-rose-100 transition hover:bg-rose-400/25 disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {filteredAccessRequests.length === 0 ? (
+                    <p className="px-3 py-5 text-center text-sm text-slate-400">No access requests match the current filters.</p>
+                  ) : null}
                 </div>
               </div>
             }

@@ -169,6 +169,29 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
+      match /accessRequests/{requestId} {
+        allow read: if isAdmin(groupId)
+          || (signedIn() && resource.data.uid == request.auth.uid);
+
+        allow create: if signedIn()
+          && requestId == request.auth.uid
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.groupId == groupId
+          && request.resource.data.status == 'Pending';
+
+        allow update: if isAdmin(groupId)
+          || (
+            signedIn()
+            && requestId == request.auth.uid
+            && resource.data.uid == request.auth.uid
+            && request.resource.data.uid == request.auth.uid
+            && request.resource.data.groupId == groupId
+            && request.resource.data.status == 'Pending'
+          );
+
+        allow delete: if isAdmin(groupId);
+      }
+
       match /memberships/{userId} {
         allow read: if signedIn() && (userId == request.auth.uid || isAdmin(groupId));
         allow create, update: if isAdmin(groupId) && hasValidMembershipPayload(groupId);
