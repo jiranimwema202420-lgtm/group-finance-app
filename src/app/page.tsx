@@ -36,11 +36,32 @@ interface MonthlyContribution {
   id: string;
   memberName: string;
   month: string;
-  amount: number;
+  welfare: number;
+  merryGoRound: number;
+  insurance: number;
+  bereavedFamily: number;
+  total: number;
+  expectedAmount?: number;
+  paidAmount?: number;
+  balance?: number;
+  paymentStatus: PaymentStatus;
   paymentDate: string;
+  amount?: number;
   createdAt?: string;
   updatedAt?: string;
 }
+
+type ContributionEditForm = {
+  memberName: string;
+  month: string;
+  welfare: string;
+  merryGoRound: string;
+  insurance: string;
+  bereavedFamily: string;
+  paidAmount: string;
+  paymentStatus: PaymentStatus;
+  paymentDate: string;
+};
 
 interface MerryGoRoundRound {
   id: string;
@@ -59,6 +80,8 @@ interface InsurancePolicy {
   providerName: string;
   policyNumber: string;
   month: string;
+  policyStartDate: string;
+  policyEndDate: string;
   premiumTarget: number;
   providerContribution: number;
   lastRespectBenefit: number;
@@ -72,6 +95,7 @@ interface BereavedCase {
   memberName: string;
   familyContact: string;
   month: string;
+  caseDate: string;
   targetAmount: number;
   collectedAmount: number;
   status: BereavedStatus;
@@ -92,21 +116,91 @@ interface ModuleProps {
 }
 
 const todayIso = () => new Date().toISOString().split('T')[0];
+const oneYearFromTodayIso = () => {
+  const date = new Date();
+  date.setFullYear(date.getFullYear() + 1);
+  return date.toISOString().split('T')[0];
+};
 const currentMonthName = () => new Date().toLocaleString('en-US', { month: 'long' });
+const formatCalendarDate = (value?: string) => {
+  if (!value) return 'Not set';
+
+  return new Date(`${value}T00:00:00`).toLocaleDateString('en-KE', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+};
+
+const toMoneyNumber = (value: unknown) => Number(value) || 0;
+
+const getContributionTotal = (contribution: MonthlyContribution) => {
+  const splitTotal =
+    toMoneyNumber(contribution.welfare) +
+    toMoneyNumber(contribution.merryGoRound) +
+    toMoneyNumber(contribution.insurance) +
+    toMoneyNumber(contribution.bereavedFamily);
+
+  return toMoneyNumber(contribution.total) || splitTotal || toMoneyNumber(contribution.amount);
+};
+
+const getContributionPaidAmount = (contribution: MonthlyContribution) => {
+  const expectedAmount = getContributionTotal(contribution);
+  const storedPaidAmount = toMoneyNumber(contribution.paidAmount);
+
+  if (storedPaidAmount > 0) return Math.min(storedPaidAmount, expectedAmount);
+  return contribution.paymentStatus === 'Paid' ? expectedAmount : 0;
+};
+
+const getContributionBalance = (contribution: MonthlyContribution) => {
+  const expectedAmount = getContributionTotal(contribution);
+  const paidAmount = getContributionPaidAmount(contribution);
+
+  return Math.max(expectedAmount - paidAmount, 0);
+};
+
+const contributionToEditForm = (contribution: MonthlyContribution): ContributionEditForm => ({
+  memberName: contribution.memberName || '',
+  month: contribution.month || currentMonthName(),
+  welfare: String(toMoneyNumber(contribution.welfare)),
+  merryGoRound: String(toMoneyNumber(contribution.merryGoRound)),
+  insurance: String(toMoneyNumber(contribution.insurance)),
+  bereavedFamily: String(toMoneyNumber(contribution.bereavedFamily)),
+  paidAmount: String(getContributionPaidAmount(contribution)),
+  paymentStatus: contribution.paymentStatus || 'Pending',
+  paymentDate: contribution.paymentDate || todayIso(),
+});
+
+const emptyContributionEditForm = (): ContributionEditForm => ({
+  memberName: '',
+  month: currentMonthName(),
+  welfare: '0',
+  merryGoRound: '0',
+  insurance: '0',
+  bereavedFamily: '0',
+  paidAmount: '0',
+  paymentStatus: 'Pending',
+  paymentDate: todayIso(),
+});
 
 const StatCard: React.FC<StatCardProps> = ({ title, value, detail }) => (
-  <div className="rounded-3xl border border-slate-800 bg-slate-900 p-5">
-    <p className="text-sm font-semibold text-slate-400">{title}</p>
-    <p className="mt-2 text-2xl font-black text-white">{value}</p>
-    <p className="mt-2 text-xs text-slate-500">{detail}</p>
+  <div className="group relative overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-2xl shadow-black/20 ring-1 ring-white/5 backdrop-blur-2xl transition duration-300 hover:-translate-y-0.5 hover:border-cyan-300/30 hover:bg-white/[0.12]">
+    <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/40 to-transparent" />
+    <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-cyan-400/10 blur-2xl transition group-hover:bg-cyan-300/20" />
+    <p className="relative text-sm font-semibold text-slate-300">{title}</p>
+    <p className="relative mt-2 text-2xl font-black tracking-tight text-white">{value}</p>
+    <p className="relative mt-2 text-xs text-slate-300">{detail}</p>
   </div>
 );
 
 const Module: React.FC<ModuleProps> = ({ title, content }) => (
-  <div className="mb-8">
-    <h2 className="mb-4 text-xl font-semibold text-slate-200">{title}</h2>
-    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">{content}</div>
-  </div>
+  <section className="mb-8">
+    <div className="mb-4 flex items-center gap-3">
+      <div className="h-2.5 w-2.5 rounded-full bg-cyan-300 shadow-lg shadow-cyan-300/40" />
+      <h2 className="text-xl font-semibold tracking-tight text-white">{title}</h2>
+    </div>
+    <div className="rounded-[2rem] border border-white/10 bg-white/[0.07] p-4 shadow-2xl shadow-black/25 ring-1 ring-white/5 backdrop-blur-2xl">{content}</div>
+  </section>
 );
 
 export default function DashboardPage() {
@@ -119,9 +213,16 @@ export default function DashboardPage() {
 
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Member>>({});
+  const [editingContributionId, setEditingContributionId] = useState<string | null>(null);
+  const [contributionEditForm, setContributionEditForm] = useState<ContributionEditForm>(emptyContributionEditForm());
+  const [contributionMemberSearch, setContributionMemberSearch] = useState('');
+  const [contributionMonthFilter, setContributionMonthFilter] = useState('All');
+  const [contributionStatusFilter, setContributionStatusFilter] = useState<'All' | PaymentStatus>('All');
+  const [generationMonth, setGenerationMonth] = useState(currentMonthName());
 
   const [submittingMember, setSubmittingMember] = useState(false);
   const [submittingContribution, setSubmittingContribution] = useState(false);
+  const [generatingMonthlyRows, setGeneratingMonthlyRows] = useState(false);
   const [submittingRound, setSubmittingRound] = useState(false);
   const [submittingInsurance, setSubmittingInsurance] = useState(false);
   const [submittingBereavedCase, setSubmittingBereavedCase] = useState(false);
@@ -138,7 +239,21 @@ export default function DashboardPage() {
   const [newContribution, setNewContribution] = useState({
     memberName: '',
     month: currentMonthName(),
-    amount: '',
+    welfare: '',
+    merryGoRound: '',
+    insurance: '',
+    bereavedFamily: '',
+    paidAmount: '',
+    paymentStatus: 'Pending' as PaymentStatus,
+    paymentDate: todayIso(),
+  });
+
+  const [monthlyGenerationDefaults, setMonthlyGenerationDefaults] = useState({
+    welfare: '200',
+    merryGoRound: '1000',
+    insurance: '750',
+    bereavedFamily: '0',
+    paymentStatus: 'Pending' as PaymentStatus,
     paymentDate: todayIso(),
   });
 
@@ -154,6 +269,8 @@ export default function DashboardPage() {
     providerName: '',
     policyNumber: '',
     month: currentMonthName(),
+    policyStartDate: todayIso(),
+    policyEndDate: oneYearFromTodayIso(),
     premiumTarget: '',
     providerContribution: '',
     lastRespectBenefit: '',
@@ -164,6 +281,7 @@ export default function DashboardPage() {
     memberName: '',
     familyContact: '',
     month: currentMonthName(),
+    caseDate: todayIso(),
     targetAmount: '',
     collectedAmount: '',
     status: 'Open' as BereavedStatus,
@@ -190,10 +308,38 @@ export default function DashboardPage() {
         setMembers(membersList);
 
         const contribSnapshot = await getDocs(collection(db, 'groups', CURRENT_GROUP_ID, 'contributions'));
-        const contribList = contribSnapshot.docs.map((documentSnapshot) => ({
-          id: documentSnapshot.id,
-          ...documentSnapshot.data(),
-        })) as MonthlyContribution[];
+        const contribList = contribSnapshot.docs.map((documentSnapshot) => {
+          const data = documentSnapshot.data();
+          const welfare = toMoneyNumber(data.welfare);
+          const merryGoRound = toMoneyNumber(data.merryGoRound);
+          const insurance = toMoneyNumber(data.insurance);
+          const bereavedFamily = toMoneyNumber(data.bereavedFamily);
+          const legacyAmount = toMoneyNumber(data.amount);
+          const splitTotal = welfare + merryGoRound + insurance + bereavedFamily;
+          const expectedAmount = toMoneyNumber(data.expectedAmount) || toMoneyNumber(data.total) || splitTotal || legacyAmount;
+          const storedPaidAmount = toMoneyNumber(data.paidAmount);
+          const paidAmount = storedPaidAmount > 0 ? Math.min(storedPaidAmount, expectedAmount) : data.paymentStatus === 'Paid' ? expectedAmount : 0;
+          const balance = Math.max(expectedAmount - paidAmount, 0);
+
+          return {
+            id: documentSnapshot.id,
+            memberName: typeof data.memberName === 'string' ? data.memberName : '',
+            month: typeof data.month === 'string' ? data.month : currentMonthName(),
+            welfare,
+            merryGoRound,
+            insurance,
+            bereavedFamily,
+            total: expectedAmount,
+            amount: expectedAmount,
+            expectedAmount,
+            paidAmount,
+            balance,
+            paymentStatus: balance <= 0 && expectedAmount > 0 ? 'Paid' : 'Pending',
+            paymentDate: typeof data.paymentDate === 'string' ? data.paymentDate : todayIso(),
+            createdAt: typeof data.createdAt === 'string' ? data.createdAt : undefined,
+            updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined,
+          } as MonthlyContribution;
+        });
         setContributions(contribList);
 
         const mgrSnapshot = await getDocs(collection(db, 'groups', CURRENT_GROUP_ID, 'rounds'));
@@ -256,14 +402,38 @@ export default function DashboardPage() {
 
   const handleAddContributionSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!newContribution.memberName.trim() || !newContribution.amount) return;
+    if (!newContribution.memberName.trim()) return;
+
+    const welfare = toMoneyNumber(newContribution.welfare);
+    const merryGoRound = toMoneyNumber(newContribution.merryGoRound);
+    const insurance = toMoneyNumber(newContribution.insurance);
+    const bereavedFamily = toMoneyNumber(newContribution.bereavedFamily);
+    const total = welfare + merryGoRound + insurance + bereavedFamily;
+    const rawPaidAmount = toMoneyNumber(newContribution.paidAmount);
+    const paidAmount = newContribution.paymentStatus === 'Paid' && rawPaidAmount <= 0 ? total : Math.min(rawPaidAmount, total);
+    const balance = Math.max(total - paidAmount, 0);
+    const paymentStatus: PaymentStatus = balance <= 0 && total > 0 ? 'Paid' : 'Pending';
+
+    if (total <= 0) {
+      alert('Enter at least one contribution amount.');
+      return;
+    }
 
     setSubmittingContribution(true);
     try {
       const contributionData = {
         memberName: newContribution.memberName.trim(),
         month: newContribution.month.trim(),
-        amount: Number(newContribution.amount) || 0,
+        welfare,
+        merryGoRound,
+        insurance,
+        bereavedFamily,
+        total,
+        amount: total,
+        expectedAmount: total,
+        paidAmount,
+        balance,
+        paymentStatus,
         paymentDate: newContribution.paymentDate,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -271,12 +441,104 @@ export default function DashboardPage() {
 
       const docRef = await addDoc(collection(db, 'groups', CURRENT_GROUP_ID, 'contributions'), contributionData);
       setContributions((previous) => [...previous, { id: docRef.id, ...contributionData }]);
-      setNewContribution({ memberName: '', month: currentMonthName(), amount: '', paymentDate: todayIso() });
+      setNewContribution({
+        memberName: '',
+        month: currentMonthName(),
+        welfare: '',
+        merryGoRound: '',
+        insurance: '',
+        bereavedFamily: '',
+        paidAmount: '',
+        paymentStatus: 'Pending',
+        paymentDate: todayIso(),
+      });
     } catch (error) {
       console.error('Error tracking contribution:', error);
       alert('Failed to log contribution.');
     } finally {
       setSubmittingContribution(false);
+    }
+  };
+
+  const handleGenerateMonthlyRows = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    const month = generationMonth.trim();
+    if (!month) {
+      alert('Enter the month to generate.');
+      return;
+    }
+
+    if (members.length === 0) {
+      alert('Add members before generating monthly contribution rows.');
+      return;
+    }
+
+    const existingKeys = new Set(
+      contributions.map((contribution) => `${contribution.memberName.trim().toLowerCase()}::${contribution.month.trim().toLowerCase()}`)
+    );
+
+    const membersWithoutRows = members.filter((member) => {
+      const key = `${member.name.trim().toLowerCase()}::${month.toLowerCase()}`;
+      return member.name.trim().length > 0 && !existingKeys.has(key);
+    });
+
+    if (membersWithoutRows.length === 0) {
+      alert(`All members already have contribution rows for ${month}.`);
+      return;
+    }
+
+    const welfare = toMoneyNumber(monthlyGenerationDefaults.welfare);
+    const merryGoRound = toMoneyNumber(monthlyGenerationDefaults.merryGoRound);
+    const insurance = toMoneyNumber(monthlyGenerationDefaults.insurance);
+    const bereavedFamily = toMoneyNumber(monthlyGenerationDefaults.bereavedFamily);
+    const total = welfare + merryGoRound + insurance + bereavedFamily;
+    const paidAmount = monthlyGenerationDefaults.paymentStatus === 'Paid' ? total : 0;
+    const balance = Math.max(total - paidAmount, 0);
+
+    setGeneratingMonthlyRows(true);
+
+    try {
+      const createdRows: MonthlyContribution[] = await Promise.all(
+        membersWithoutRows.map(async (member) => {
+          const paymentStatus: PaymentStatus = balance <= 0 && total > 0 ? 'Paid' : 'Pending';
+
+          const rowData: Omit<MonthlyContribution, 'id'> = {
+            memberName: member.name.trim(),
+            month,
+            welfare,
+            merryGoRound,
+            insurance,
+            bereavedFamily,
+            total,
+            amount: total,
+            expectedAmount: total,
+            paidAmount,
+            balance,
+            paymentStatus,
+            paymentDate: monthlyGenerationDefaults.paymentDate,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+
+          const docRef = await addDoc(collection(db, 'groups', CURRENT_GROUP_ID, 'contributions'), rowData);
+
+          return {
+            id: docRef.id,
+            ...rowData,
+          };
+        })
+      );
+
+      setContributions((previous) => [...previous, ...createdRows]);
+      setContributionMonthFilter(month);
+      setContributionStatusFilter('All');
+      alert(`Generated ${createdRows.length} monthly contribution row(s) for ${month}.`);
+    } catch (error) {
+      console.error('Failed to generate monthly contribution rows:', error);
+      alert('Failed to generate monthly contribution rows.');
+    } finally {
+      setGeneratingMonthlyRows(false);
     }
   };
 
@@ -317,6 +579,8 @@ export default function DashboardPage() {
         providerName: newInsurancePolicy.providerName.trim(),
         policyNumber: newInsurancePolicy.policyNumber.trim(),
         month: newInsurancePolicy.month.trim(),
+        policyStartDate: newInsurancePolicy.policyStartDate,
+        policyEndDate: newInsurancePolicy.policyEndDate,
         premiumTarget: Number(newInsurancePolicy.premiumTarget) || 0,
         providerContribution: Number(newInsurancePolicy.providerContribution) || 0,
         lastRespectBenefit: Number(newInsurancePolicy.lastRespectBenefit) || 0,
@@ -327,7 +591,17 @@ export default function DashboardPage() {
 
       const docRef = await addDoc(collection(db, 'groups', CURRENT_GROUP_ID, 'insurance'), policyData);
       setInsurancePolicies((previous) => [{ id: docRef.id, ...policyData }, ...previous]);
-      setNewInsurancePolicy({ providerName: '', policyNumber: '', month: currentMonthName(), premiumTarget: '', providerContribution: '', lastRespectBenefit: '', status: 'Active' });
+      setNewInsurancePolicy({
+        providerName: '',
+        policyNumber: '',
+        month: currentMonthName(),
+        policyStartDate: todayIso(),
+        policyEndDate: oneYearFromTodayIso(),
+        premiumTarget: '',
+        providerContribution: '',
+        lastRespectBenefit: '',
+        status: 'Active',
+      });
     } catch (error) {
       console.error('Error creating insurance policy:', error);
       alert('Failed to create insurance policy.');
@@ -349,6 +623,7 @@ export default function DashboardPage() {
         memberName: newBereavedCase.memberName.trim(),
         familyContact: newBereavedCase.familyContact.trim(),
         month: newBereavedCase.month.trim(),
+        caseDate: newBereavedCase.caseDate,
         targetAmount,
         collectedAmount,
         status,
@@ -359,7 +634,16 @@ export default function DashboardPage() {
 
       const docRef = await addDoc(collection(db, 'groups', CURRENT_GROUP_ID, 'bereavedCases'), caseData);
       setBereavedCases((previous) => [{ id: docRef.id, ...caseData }, ...previous]);
-      setNewBereavedCase({ memberName: '', familyContact: '', month: currentMonthName(), targetAmount: '', collectedAmount: '', status: 'Open', notes: '' });
+      setNewBereavedCase({
+        memberName: '',
+        familyContact: '',
+        month: currentMonthName(),
+        caseDate: todayIso(),
+        targetAmount: '',
+        collectedAmount: '',
+        status: 'Open',
+        notes: '',
+      });
     } catch (error) {
       console.error('Error creating bereaved case:', error);
       alert('Failed to create bereaved family case.');
@@ -410,6 +694,124 @@ export default function DashboardPage() {
     } catch (error) {
       console.error('Failed to delete member:', error);
       alert('Failed to delete member.');
+    }
+  };
+
+  const startEditingContribution = (contribution: MonthlyContribution) => {
+    setEditingContributionId(contribution.id);
+    setContributionEditForm(contributionToEditForm(contribution));
+  };
+
+  const cancelContributionEditing = () => {
+    setEditingContributionId(null);
+    setContributionEditForm(emptyContributionEditForm());
+  };
+
+  const handleContributionEditChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = event.target;
+
+    setContributionEditForm((previous) => ({
+      ...previous,
+      [name]: value,
+    }));
+  };
+
+  const saveContributionChanges = async (id: string) => {
+    if (!contributionEditForm.memberName.trim()) {
+      alert('Member name is required.');
+      return;
+    }
+
+    const welfare = toMoneyNumber(contributionEditForm.welfare);
+    const merryGoRound = toMoneyNumber(contributionEditForm.merryGoRound);
+    const insurance = toMoneyNumber(contributionEditForm.insurance);
+    const bereavedFamily = toMoneyNumber(contributionEditForm.bereavedFamily);
+    const total = welfare + merryGoRound + insurance + bereavedFamily;
+    const rawPaidAmount = toMoneyNumber(contributionEditForm.paidAmount);
+    const paidAmount = contributionEditForm.paymentStatus === 'Paid' && rawPaidAmount <= 0 ? total : Math.min(rawPaidAmount, total);
+    const balance = Math.max(total - paidAmount, 0);
+    const paymentStatus: PaymentStatus = balance <= 0 && total > 0 ? 'Paid' : 'Pending';
+    const updatedAt = new Date().toISOString();
+
+    if (total <= 0) {
+      alert('Enter at least one contribution amount before saving.');
+      return;
+    }
+
+    try {
+      const updatedContribution = {
+        memberName: contributionEditForm.memberName.trim(),
+        month: contributionEditForm.month.trim() || currentMonthName(),
+        welfare,
+        merryGoRound,
+        insurance,
+        bereavedFamily,
+        total,
+        amount: total,
+        expectedAmount: total,
+        paidAmount,
+        balance,
+        paymentStatus,
+        paymentDate: contributionEditForm.paymentDate || todayIso(),
+        updatedAt,
+      };
+
+      await updateDoc(doc(db, 'groups', CURRENT_GROUP_ID, 'contributions', id), updatedContribution);
+
+      setContributions((previous) =>
+        previous.map((contribution) =>
+          contribution.id === id
+            ? {
+                ...contribution,
+                ...updatedContribution,
+              }
+            : contribution
+        )
+      );
+
+      cancelContributionEditing();
+    } catch (error) {
+      console.error('Failed to update contribution:', error);
+      alert('Failed to update monthly contribution.');
+    }
+  };
+
+  const markContributionStatus = async (id: string, paymentStatus: PaymentStatus) => {
+    const targetContribution = contributions.find((contribution) => contribution.id === id);
+    if (!targetContribution) return;
+
+    const expectedAmount = getContributionTotal(targetContribution);
+    const paidAmount = paymentStatus === 'Paid' ? expectedAmount : 0;
+    const balance = Math.max(expectedAmount - paidAmount, 0);
+    const updatedAt = new Date().toISOString();
+    const paymentDate = paymentStatus === 'Paid' ? todayIso() : '';
+
+    try {
+      await updateDoc(doc(db, 'groups', CURRENT_GROUP_ID, 'contributions', id), {
+        paidAmount,
+        balance,
+        paymentStatus,
+        paymentDate,
+        updatedAt,
+      });
+
+      setContributions((previous) =>
+        previous.map((contribution) =>
+          contribution.id === id
+            ? {
+                ...contribution,
+                paidAmount,
+                balance,
+                paymentStatus,
+                paymentDate,
+                updatedAt,
+              }
+            : contribution
+        )
+      );
+    } catch (error) {
+      console.error('Failed to update contribution status:', error);
+      alert('Failed to update contribution status.');
     }
   };
 
@@ -486,15 +888,66 @@ export default function DashboardPage() {
     }
   };
 
+  const availableContributionMonths = Array.from(
+    new Set(contributions.map((contribution) => contribution.month).filter(Boolean))
+  ).sort((firstMonth, secondMonth) => firstMonth.localeCompare(secondMonth));
+
+  const normalizedContributionSearch = contributionMemberSearch.trim().toLowerCase();
+  const generationDuplicateKeys = new Set(
+    contributions.map((contribution) => `${contribution.memberName.trim().toLowerCase()}::${generationMonth.trim().toLowerCase()}`)
+  );
+  const generationEligibleMembers = members.filter((member) => member.name.trim().length > 0);
+  const generationMissingMembers = generationEligibleMembers.filter(
+    (member) => !generationDuplicateKeys.has(`${member.name.trim().toLowerCase()}::${generationMonth.trim().toLowerCase()}`)
+  );
+  const generationDefaultTotal =
+    toMoneyNumber(monthlyGenerationDefaults.welfare) +
+    toMoneyNumber(monthlyGenerationDefaults.merryGoRound) +
+    toMoneyNumber(monthlyGenerationDefaults.insurance) +
+    toMoneyNumber(monthlyGenerationDefaults.bereavedFamily);
+
+  const filteredContributions = contributions.filter((contribution) => {
+    const matchesMember =
+      normalizedContributionSearch.length === 0 ||
+      contribution.memberName.toLowerCase().includes(normalizedContributionSearch);
+
+    const matchesMonth =
+      contributionMonthFilter === 'All' || contribution.month === contributionMonthFilter;
+
+    const matchesStatus =
+      contributionStatusFilter === 'All' || contribution.paymentStatus === contributionStatusFilter;
+
+    return matchesMember && matchesMonth && matchesStatus;
+  });
+
+  const clearContributionFilters = () => {
+    setContributionMemberSearch('');
+    setContributionMonthFilter('All');
+    setContributionStatusFilter('All');
+  };
+
   const exportContributionsCsv = () => {
-    const headers = ['Member Name', 'Month', 'Amount', 'Payment Date'];
-    const rows = contributions.map((contribution) => [contribution.memberName, contribution.month, contribution.amount, contribution.paymentDate]);
-    const csv = [headers.join(','), ...rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(','))].join('\n');
+    const headers = ['Member Name', 'Month', 'Welfare', 'Merry Go Round', 'Insurance', 'Bereaved Family', 'Expected Amount', 'Paid Amount', 'Balance', 'Payment Status', 'Payment Date'];
+    const exportRows = filteredContributions.length > 0 ? filteredContributions : contributions;
+    const rows = exportRows.map((contribution) => [
+      contribution.memberName,
+      contribution.month,
+      toMoneyNumber(contribution.welfare),
+      toMoneyNumber(contribution.merryGoRound),
+      toMoneyNumber(contribution.insurance),
+      toMoneyNumber(contribution.bereavedFamily),
+      getContributionTotal(contribution),
+      getContributionPaidAmount(contribution),
+      getContributionBalance(contribution),
+      contribution.paymentStatus,
+      contribution.paymentDate,
+    ]);
+    const csv = [headers.join(','), ...rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(','))].join('\\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = 'jirani-contributions.csv';
+    link.download = 'jirani-monthly-contributions.csv';
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -506,6 +959,23 @@ export default function DashboardPage() {
   const totalMembers = members.length;
   const totalCollected = members.filter((member) => member.status === 'Paid').reduce((sum, member) => sum + member.insurancePaid, 0);
   const totalBalancePending = members.filter((member) => member.status === 'Pending').reduce((sum, member) => sum + member.insurancePaid, 0);
+  const totalMonthlyContributions = contributions.reduce((sum, contribution) => sum + getContributionTotal(contribution), 0);
+  const paidMonthlyContributions = contributions.reduce((sum, contribution) => sum + getContributionPaidAmount(contribution), 0);
+  const totalMonthlyArrears = contributions.reduce((sum, contribution) => sum + getContributionBalance(contribution), 0);
+  const membersWithArrears = new Set(contributions.filter((contribution) => getContributionBalance(contribution) > 0).map((contribution) => contribution.memberName.trim().toLowerCase())).size;
+  const filteredMonthlyContributionsTotal = filteredContributions.reduce((sum, contribution) => sum + getContributionTotal(contribution), 0);
+  const filteredPaidMonthlyContributions = filteredContributions.reduce((sum, contribution) => sum + getContributionPaidAmount(contribution), 0);
+  const filteredPendingMonthlyContributions = filteredContributions.reduce((sum, contribution) => sum + getContributionBalance(contribution), 0);
+  const newContributionTotal =
+    toMoneyNumber(newContribution.welfare) +
+    toMoneyNumber(newContribution.merryGoRound) +
+    toMoneyNumber(newContribution.insurance) +
+    toMoneyNumber(newContribution.bereavedFamily);
+  const newContributionPaidAmount =
+    newContribution.paymentStatus === 'Paid' && toMoneyNumber(newContribution.paidAmount) <= 0
+      ? newContributionTotal
+      : Math.min(toMoneyNumber(newContribution.paidAmount), newContributionTotal);
+  const newContributionBalance = Math.max(newContributionTotal - newContributionPaidAmount, 0);
   const totalInsuranceTarget = insurancePolicies.reduce((sum, policy) => sum + policy.premiumTarget, 0);
   const totalLastRespectBenefit = insurancePolicies.reduce((sum, policy) => sum + policy.lastRespectBenefit, 0);
   const totalBereavedTarget = bereavedCases.reduce((sum, caseItem) => sum + caseItem.targetAmount, 0);
@@ -515,7 +985,7 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-400">
+      <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.22),_transparent_34%),radial-gradient(circle_at_bottom_right,_rgba(99,102,241,0.24),_transparent_38%),linear-gradient(135deg,#020617,#0f172a_45%,#111827)] text-slate-300">
         <div className="text-center">
           <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-cyan-400 border-t-transparent" />
           <p className="text-sm font-medium">Loading Database Dashboard...</p>
@@ -525,30 +995,34 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 p-8 text-slate-100">
-      <header className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.22),_transparent_32%),radial-gradient(circle_at_80%_0%,_rgba(168,85,247,0.18),_transparent_32%),linear-gradient(135deg,#020617,#0f172a_48%,#111827)] px-4 py-8 text-slate-100 sm:px-8">
+      <div className="pointer-events-none absolute -left-24 top-20 h-72 w-72 rounded-full bg-cyan-400/10 blur-3xl" />
+      <div className="pointer-events-none absolute -right-24 top-64 h-80 w-80 rounded-full bg-indigo-500/10 blur-3xl" />
+      <header className="relative mb-8 flex flex-col gap-4 rounded-[2rem] border border-white/10 bg-white/[0.08] p-6 shadow-2xl shadow-black/25 ring-1 ring-white/5 backdrop-blur-2xl md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-wide text-cyan-400">Jirani Finance App</p>
-          <h1 className="text-3xl font-bold text-white">Group Finance Dashboard</h1>
+          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-300">Jirani Finance App</p>
+          <h1 className="mt-1 text-3xl font-black tracking-tight text-white md:text-4xl">Group Finance Dashboard</h1>
         </div>
         <div className="flex gap-3">
-          <button onClick={exportContributionsCsv} className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500" type="button">
+          <button onClick={exportContributionsCsv} className="rounded-2xl border border-emerald-300/20 bg-emerald-400/20 px-4 py-2 text-sm font-semibold text-emerald-100 shadow-lg shadow-emerald-950/20 backdrop-blur-xl transition hover:bg-emerald-400/30" type="button">
             Export CSV
           </button>
-          <button onClick={printDashboardReport} className="rounded-xl bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-700" type="button">
+          <button onClick={printDashboardReport} className="rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-slate-100 shadow-lg shadow-black/10 backdrop-blur-xl transition hover:bg-white/15" type="button">
             Print Report
           </button>
         </div>
       </header>
 
-      <main>
+      <main className="relative">
         <Module
           title="Stats"
           content={
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
               <StatCard title="Total Members" value={totalMembers} detail="From database records" />
-              <StatCard title="Collected" value={formatCurrency(totalCollected)} detail="Completed member insurance" />
-              <StatCard title="Balance" value={formatCurrency(totalBalancePending)} detail="Still pending collection" />
+              <StatCard title="Member Insurance" value={formatCurrency(totalCollected)} detail="Completed member insurance" />
+              <StatCard title="Pending Balance" value={formatCurrency(totalBalancePending)} detail="Still pending collection" />
+              <StatCard title="Monthly Contributions" value={formatCurrency(totalMonthlyContributions)} detail={`Paid: ${formatCurrency(paidMonthlyContributions)}`} />
+              <StatCard title="Monthly Arrears" value={formatCurrency(totalMonthlyArrears)} detail={`${membersWithArrears} member(s) with balance`} />
               <StatCard title="Insurance Target" value={formatCurrency(totalInsuranceTarget)} detail={`Benefit: ${formatCurrency(totalLastRespectBenefit)}`} />
               <StatCard title="Bereaved Support" value={formatCurrency(totalBereavedCollected)} detail={`Target: ${formatCurrency(totalBereavedTarget)}`} />
             </div>
@@ -557,36 +1031,282 @@ export default function DashboardPage() {
 
         <div className="mb-8 grid grid-cols-1 gap-8 lg:grid-cols-2">
           <Module
-            title="Monthly Contributions"
+            title="Monthly Contributors"
             content={
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-800">
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 gap-3 rounded-[1.5rem] border border-white/10 bg-white/[0.05] p-4 md:grid-cols-4">
+                  <div>
+                    <label className="mb-1 block text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Search Member</label>
+                    <input
+                      type="search"
+                      value={contributionMemberSearch}
+                      onChange={(event) => setContributionMemberSearch(event.target.value)}
+                      className="w-full rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-cyan-300/60"
+                      placeholder="Type member name..."
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Month</label>
+                    <select
+                      value={contributionMonthFilter}
+                      onChange={(event) => setContributionMonthFilter(event.target.value)}
+                      className="w-full rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white outline-none focus:border-cyan-300/60"
+                    >
+                      <option value="All">All months</option>
+                      {availableContributionMonths.map((month) => (
+                        <option key={month} value={month}>
+                          {month}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Status</label>
+                    <select
+                      value={contributionStatusFilter}
+                      onChange={(event) => setContributionStatusFilter(event.target.value as 'All' | PaymentStatus)}
+                      className="w-full rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white outline-none focus:border-cyan-300/60"
+                    >
+                      <option value="All">All statuses</option>
+                      <option value="Paid">Paid</option>
+                      <option value="Pending">Pending</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-end">
+                    <button
+                      type="button"
+                      onClick={clearContributionFilters}
+                      className="w-full rounded-2xl border border-white/10 bg-white/10 px-3 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/15"
+                    >
+                      Clear Filters
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Rows Shown</p>
+                    <p className="mt-1 text-xl font-black text-white">{filteredContributions.length}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Filtered Total</p>
+                    <p className="mt-1 text-xl font-black text-emerald-300">{formatCurrency(filteredMonthlyContributionsTotal)}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Filtered Paid</p>
+                    <p className="mt-1 text-xl font-black text-cyan-300">{formatCurrency(filteredPaidMonthlyContributions)}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Filtered Arrears</p>
+                    <p className="mt-1 text-xl font-black text-amber-300">{formatCurrency(filteredPendingMonthlyContributions)}</p>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-white/10 overflow-hidden">
                   <thead>
                     <tr>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-400">Member</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-400">Month</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-400">Amount</th>
-                      <th className="px-4 py-3 text-right text-sm font-semibold text-slate-400">Actions</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Member</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Month</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Date</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Welfare</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">MGR</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Insurance</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Bereaved</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Expected</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Paid</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Balance</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Status</th>
+                      <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/50">
-                    {contributions.map((contribution) => (
-                      <tr key={contribution.id}>
-                        <td className="px-4 py-3 font-medium text-white">{contribution.memberName}</td>
-                        <td className="px-4 py-3 text-sm text-slate-300">{contribution.month}</td>
-                        <td className="px-4 py-3 text-sm font-semibold text-emerald-400">{formatCurrency(contribution.amount)}</td>
-                        <td className="px-4 py-3 text-right">
-                          <button onClick={() => handleDeleteContribution(contribution.id)} className="text-xs font-semibold text-rose-400 underline hover:text-rose-300" type="button">
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                    {contributions.length === 0 && (
-                      <tr><td colSpan={4} className="px-4 py-6 text-center text-sm text-slate-500">No contributions yet.</td></tr>
+                  <tbody className="divide-y divide-white/10">
+                    {filteredContributions.map((contribution) => {
+                      const isEditingContribution = editingContributionId === contribution.id;
+                      const editingTotal =
+                        toMoneyNumber(contributionEditForm.welfare) +
+                        toMoneyNumber(contributionEditForm.merryGoRound) +
+                        toMoneyNumber(contributionEditForm.insurance) +
+                        toMoneyNumber(contributionEditForm.bereavedFamily);
+                      const editingPaidAmount = contributionEditForm.paymentStatus === 'Paid' && toMoneyNumber(contributionEditForm.paidAmount) <= 0
+                        ? editingTotal
+                        : Math.min(toMoneyNumber(contributionEditForm.paidAmount), editingTotal);
+                      const editingBalance = Math.max(editingTotal - editingPaidAmount, 0);
+
+                      return (
+                        <tr key={contribution.id} className="transition-colors hover:bg-white/[0.04]">
+                          <td className="px-4 py-3 font-medium text-white">
+                            {isEditingContribution ? (
+                              <input
+                                name="memberName"
+                                type="text"
+                                value={contributionEditForm.memberName}
+                                onChange={handleContributionEditChange}
+                                className="w-44 rounded-xl border border-white/10 bg-white/[0.08] px-2 py-1 text-xs text-white outline-none focus:border-cyan-300/60"
+                              />
+                            ) : (
+                              contribution.memberName
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-slate-300">
+                            {isEditingContribution ? (
+                              <input
+                                name="month"
+                                type="text"
+                                value={contributionEditForm.month}
+                                onChange={handleContributionEditChange}
+                                className="w-28 rounded-xl border border-white/10 bg-white/[0.08] px-2 py-1 text-xs text-white outline-none focus:border-cyan-300/60"
+                              />
+                            ) : (
+                              contribution.month
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-slate-300">
+                            {isEditingContribution ? (
+                              <input
+                                name="paymentDate"
+                                type="date"
+                                value={contributionEditForm.paymentDate}
+                                onChange={handleContributionEditChange}
+                                className="w-36 rounded-xl border border-white/10 bg-white/[0.08] px-2 py-1 text-xs text-white outline-none focus:border-cyan-300/60"
+                              />
+                            ) : (
+                              formatCalendarDate(contribution.paymentDate)
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-slate-300">
+                            {isEditingContribution ? (
+                              <input
+                                name="welfare"
+                                type="number"
+                                min="0"
+                                value={contributionEditForm.welfare}
+                                onChange={handleContributionEditChange}
+                                className="w-24 rounded-xl border border-white/10 bg-white/[0.08] px-2 py-1 text-xs text-white outline-none focus:border-cyan-300/60"
+                              />
+                            ) : (
+                              formatCurrency(toMoneyNumber(contribution.welfare))
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-slate-300">
+                            {isEditingContribution ? (
+                              <input
+                                name="merryGoRound"
+                                type="number"
+                                min="0"
+                                value={contributionEditForm.merryGoRound}
+                                onChange={handleContributionEditChange}
+                                className="w-24 rounded-xl border border-white/10 bg-white/[0.08] px-2 py-1 text-xs text-white outline-none focus:border-cyan-300/60"
+                              />
+                            ) : (
+                              formatCurrency(toMoneyNumber(contribution.merryGoRound))
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-slate-300">
+                            {isEditingContribution ? (
+                              <input
+                                name="insurance"
+                                type="number"
+                                min="0"
+                                value={contributionEditForm.insurance}
+                                onChange={handleContributionEditChange}
+                                className="w-24 rounded-xl border border-white/10 bg-white/[0.08] px-2 py-1 text-xs text-white outline-none focus:border-cyan-300/60"
+                              />
+                            ) : (
+                              formatCurrency(toMoneyNumber(contribution.insurance))
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-slate-300">
+                            {isEditingContribution ? (
+                              <input
+                                name="bereavedFamily"
+                                type="number"
+                                min="0"
+                                value={contributionEditForm.bereavedFamily}
+                                onChange={handleContributionEditChange}
+                                className="w-24 rounded-xl border border-white/10 bg-white/[0.08] px-2 py-1 text-xs text-white outline-none focus:border-cyan-300/60"
+                              />
+                            ) : (
+                              formatCurrency(toMoneyNumber(contribution.bereavedFamily))
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm font-semibold text-emerald-300">
+                            {formatCurrency(isEditingContribution ? editingTotal : getContributionTotal(contribution))}
+                          </td>
+                          <td className="px-4 py-3 text-sm font-semibold text-cyan-300">
+                            {isEditingContribution ? (
+                              <input
+                                name="paidAmount"
+                                type="number"
+                                min="0"
+                                value={contributionEditForm.paidAmount}
+                                onChange={handleContributionEditChange}
+                                className="w-24 rounded-xl border border-white/10 bg-white/[0.08] px-2 py-1 text-xs text-white outline-none focus:border-cyan-300/60"
+                              />
+                            ) : (
+                              formatCurrency(getContributionPaidAmount(contribution))
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm font-semibold text-rose-300">
+                            {formatCurrency(isEditingContribution ? editingBalance : getContributionBalance(contribution))}
+                          </td>
+                          <td className="px-4 py-3">
+                            {isEditingContribution ? (
+                              <select
+                                name="paymentStatus"
+                                value={contributionEditForm.paymentStatus}
+                                onChange={handleContributionEditChange}
+                                className="rounded-xl border border-white/10 bg-white/[0.08] px-2 py-1 text-xs text-white outline-none focus:border-cyan-300/60"
+                              >
+                                <option value="Pending">Pending</option>
+                                <option value="Paid">Paid</option>
+                              </select>
+                            ) : (
+                              <span className={`rounded-full border px-3 py-1 text-xs font-bold ${contribution.paymentStatus === 'Paid' ? 'border-emerald-300/20 bg-emerald-400/10 text-emerald-300' : 'border-amber-300/20 bg-amber-400/10 text-amber-300'}`}>
+                                {contribution.paymentStatus}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            {isEditingContribution ? (
+                              <div className="flex justify-end gap-3">
+                                <button onClick={() => saveContributionChanges(contribution.id)} className="text-xs font-semibold text-emerald-400 underline hover:text-emerald-300" type="button">
+                                  Save
+                                </button>
+                                <button onClick={cancelContributionEditing} className="text-xs font-semibold text-slate-300 underline hover:text-white" type="button">
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex justify-end gap-3">
+                                <button onClick={() => startEditingContribution(contribution)} className="text-xs font-semibold text-cyan-400 underline hover:text-cyan-300" type="button">
+                                  Edit
+                                </button>
+                                <button
+                                  onClick={() => markContributionStatus(contribution.id, contribution.paymentStatus === 'Paid' ? 'Pending' : 'Paid')}
+                                  className="text-xs font-semibold text-emerald-400 underline hover:text-emerald-300"
+                                  type="button"
+                                >
+                                  {contribution.paymentStatus === 'Paid' ? 'Mark Pending' : 'Mark Paid'}
+                                </button>
+                                <button onClick={() => handleDeleteContribution(contribution.id)} className="text-xs font-semibold text-rose-400 underline hover:text-rose-300" type="button">
+                                  Delete
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {filteredContributions.length === 0 && (
+                      <tr><td colSpan={12} className="px-4 py-6 text-center text-sm text-slate-400">No monthly contributors match the current filters.</td></tr>
                     )}
                   </tbody>
-                </table>
+                  </table>
+                </div>
               </div>
             }
           />
@@ -595,25 +1315,27 @@ export default function DashboardPage() {
             title="Merry-Go-Round Schedule"
             content={
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-800">
+                <table className="min-w-full divide-y divide-white/10 overflow-hidden">
                   <thead>
                     <tr>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-400">Round</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-400">Recipient</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-400">Status</th>
-                      <th className="px-4 py-3 text-right text-sm font-semibold text-slate-400">Actions</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Round</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Recipient</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Payout Date</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Status</th>
+                      <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/50">
+                  <tbody className="divide-y divide-white/10/50">
                     {merryGoRound.map((round) => (
-                      <tr key={round.id} className={round.status === 'Current' ? 'bg-slate-800/30' : ''}>
-                        <td className="px-4 py-3 text-sm font-bold text-slate-400">#{round.roundNumber}</td>
+                      <tr key={round.id} className={round.status === 'Current' ? 'bg-cyan-400/5' : ''}>
+                        <td className="px-4 py-3 text-sm font-bold text-slate-300">#{round.roundNumber}</td>
                         <td className="px-4 py-3 text-sm font-semibold text-white">
                           {round.recipientName}
                           <span className="block text-xs font-normal text-emerald-400">{formatCurrency(round.payoutAmount)}</span>
                         </td>
+                        <td className="px-4 py-3 text-sm text-slate-300">{formatCalendarDate(round.payoutDate)}</td>
                         <td className="px-4 py-3">
-                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${round.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-400' : round.status === 'Current' ? 'bg-cyan-500/10 text-cyan-400' : 'bg-slate-700/30 text-slate-400'}`}>
+                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${round.status === 'Completed' ? 'bg-emerald-400/10 text-emerald-300 border border-emerald-300/20' : round.status === 'Current' ? 'bg-cyan-400/10 text-cyan-300 border border-cyan-300/20' : 'bg-white/10 text-slate-300 border border-white/10'}`}>
                             {round.status}
                           </span>
                         </td>
@@ -628,7 +1350,7 @@ export default function DashboardPage() {
                       </tr>
                     ))}
                     {merryGoRound.length === 0 && (
-                      <tr><td colSpan={4} className="px-4 py-6 text-center text-sm text-slate-500">No rounds scheduled yet.</td></tr>
+                      <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-slate-400">No rounds scheduled yet.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -642,24 +1364,29 @@ export default function DashboardPage() {
             title="Insurance Provider Policies"
             content={
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-800">
+                <table className="min-w-full divide-y divide-white/10 overflow-hidden">
                   <thead>
                     <tr>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-400">Provider</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-400">Month</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-400">Premium</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-400">Benefit</th>
-                      <th className="px-4 py-3 text-right text-sm font-semibold text-slate-400">Actions</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Provider</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Month</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Coverage Dates</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Premium</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Benefit</th>
+                      <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/50">
+                  <tbody className="divide-y divide-white/10/50">
                     {insurancePolicies.map((policy) => (
                       <tr key={policy.id}>
                         <td className="px-4 py-3">
                           <span className="block font-semibold text-white">{policy.providerName}</span>
-                          <span className="text-xs text-slate-500">{policy.policyNumber || 'No policy number'}</span>
+                          <span className="text-xs text-slate-400">{policy.policyNumber || 'No policy number'}</span>
                         </td>
                         <td className="px-4 py-3 text-sm text-slate-300">{policy.month}</td>
+                        <td className="px-4 py-3 text-sm text-slate-300">
+                          <span className="block">Start: {formatCalendarDate(policy.policyStartDate)}</span>
+                          <span className="block text-xs text-slate-400">End: {formatCalendarDate(policy.policyEndDate)}</span>
+                        </td>
                         <td className="px-4 py-3 text-sm font-semibold text-emerald-400">{formatCurrency(policy.premiumTarget)}</td>
                         <td className="px-4 py-3 text-sm font-semibold text-cyan-400">{formatCurrency(policy.lastRespectBenefit)}</td>
                         <td className="px-4 py-3 text-right">
@@ -668,7 +1395,7 @@ export default function DashboardPage() {
                       </tr>
                     ))}
                     {insurancePolicies.length === 0 && (
-                      <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-slate-500">No insurance provider policies yet.</td></tr>
+                      <tr><td colSpan={6} className="px-4 py-6 text-center text-sm text-slate-400">No insurance provider policies yet.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -680,30 +1407,32 @@ export default function DashboardPage() {
             title="Bereaved Family Cases"
             content={
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-800">
+                <table className="min-w-full divide-y divide-white/10 overflow-hidden">
                   <thead>
                     <tr>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-400">Member / Family</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-400">Month</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-400">Collected</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-400">Status</th>
-                      <th className="px-4 py-3 text-right text-sm font-semibold text-slate-400">Actions</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Member / Family</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Month</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Case Date</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Collected</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Status</th>
+                      <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/50">
+                  <tbody className="divide-y divide-white/10/50">
                     {bereavedCases.map((caseItem) => (
                       <tr key={caseItem.id}>
                         <td className="px-4 py-3">
                           <span className="block font-semibold text-white">{caseItem.memberName}</span>
-                          <span className="text-xs text-slate-500">{caseItem.familyContact || 'No family contact'}</span>
+                          <span className="text-xs text-slate-400">{caseItem.familyContact || 'No family contact'}</span>
                         </td>
                         <td className="px-4 py-3 text-sm text-slate-300">{caseItem.month}</td>
+                        <td className="px-4 py-3 text-sm text-slate-300">{formatCalendarDate(caseItem.caseDate)}</td>
                         <td className="px-4 py-3 text-sm font-semibold text-emerald-400">
                           {formatCurrency(caseItem.collectedAmount)}
-                          <span className="block text-xs text-slate-500">Target: {formatCurrency(caseItem.targetAmount)}</span>
+                          <span className="block text-xs text-slate-400">Target: {formatCurrency(caseItem.targetAmount)}</span>
                         </td>
                         <td className="px-4 py-3">
-                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${caseItem.status === 'Closed' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>
+                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${caseItem.status === 'Closed' ? 'bg-emerald-400/10 text-emerald-300 border border-emerald-300/20' : 'bg-amber-400/10 text-amber-300 border border-amber-300/20'}`}>
                             {caseItem.status}
                           </span>
                         </td>
@@ -716,7 +1445,7 @@ export default function DashboardPage() {
                       </tr>
                     ))}
                     {bereavedCases.length === 0 && (
-                      <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-slate-500">No bereaved cases yet.</td></tr>
+                      <tr><td colSpan={6} className="px-4 py-6 text-center text-sm text-slate-400">No bereaved cases yet.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -725,66 +1454,123 @@ export default function DashboardPage() {
           />
         </div>
 
-        <div className="mb-8 grid grid-cols-1 gap-6 xl:grid-cols-5">
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+        <div className="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
+          <div className="rounded-[2rem] border border-white/10 bg-white/[0.07] p-5 shadow-2xl shadow-black/20 ring-1 ring-white/5 backdrop-blur-2xl">
             <h3 className="mb-4 text-lg font-bold text-white">Add Group Member</h3>
             <form onSubmit={handleAddMemberSubmit} className="space-y-3.5">
-              <input type="text" required value={newMember.name} onChange={(event) => setNewMember((previous) => ({ ...previous, name: event.target.value }))} className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none" placeholder="Full name" />
-              <input type="email" value={newMember.email} onChange={(event) => setNewMember((previous) => ({ ...previous, email: event.target.value }))} className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none" placeholder="Email" />
-              <input type="text" value={newMember.contact} onChange={(event) => setNewMember((previous) => ({ ...previous, contact: event.target.value }))} className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none" placeholder="Contact phone" />
-              <input type="number" value={newMember.insurancePaid} onChange={(event) => setNewMember((previous) => ({ ...previous, insurancePaid: event.target.value }))} className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none" placeholder="Insurance paid" />
-              <select value={newMember.status} onChange={(event) => setNewMember((previous) => ({ ...previous, status: event.target.value as PaymentStatus }))} className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none">
+              <input type="text" required value={newMember.name} onChange={(event) => setNewMember((previous) => ({ ...previous, name: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Full name" />
+              <input type="email" value={newMember.email} onChange={(event) => setNewMember((previous) => ({ ...previous, email: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Email" />
+              <input type="text" value={newMember.contact} onChange={(event) => setNewMember((previous) => ({ ...previous, contact: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Contact phone" />
+              <label className="block text-xs font-semibold text-slate-300">Join Date</label>
+              <input type="date" value={newMember.joinDate} onChange={(event) => setNewMember((previous) => ({ ...previous, joinDate: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" />
+              <input type="number" value={newMember.insurancePaid} onChange={(event) => setNewMember((previous) => ({ ...previous, insurancePaid: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Insurance paid" />
+              <select value={newMember.status} onChange={(event) => setNewMember((previous) => ({ ...previous, status: event.target.value as PaymentStatus }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20">
                 <option value="Pending">Pending</option>
                 <option value="Paid">Paid</option>
               </select>
-              <button type="submit" disabled={submittingMember} className="w-full rounded-xl bg-cyan-600 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:opacity-60">{submittingMember ? 'Saving...' : 'Add Member'}</button>
+              <button type="submit" disabled={submittingMember} className="w-full rounded-2xl border border-cyan-300/20 bg-cyan-400/20 py-2 text-sm font-semibold text-cyan-50 shadow-lg shadow-cyan-950/20 backdrop-blur-xl transition hover:bg-cyan-400/30 disabled:opacity-60">{submittingMember ? 'Saving...' : 'Add Member'}</button>
             </form>
           </div>
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-            <h3 className="mb-4 text-lg font-bold text-white">Log Contribution</h3>
+          <div className="rounded-[2rem] border border-white/10 bg-white/[0.07] p-5 shadow-2xl shadow-black/20 ring-1 ring-white/5 backdrop-blur-2xl">
+            <h3 className="mb-4 text-lg font-bold text-white">Add Monthly Contributor</h3>
             <form onSubmit={handleAddContributionSubmit} className="space-y-3.5">
-              <input type="text" required value={newContribution.memberName} onChange={(event) => setNewContribution((previous) => ({ ...previous, memberName: event.target.value }))} className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none" placeholder="Member name" />
-              <input type="text" required value={newContribution.month} onChange={(event) => setNewContribution((previous) => ({ ...previous, month: event.target.value }))} className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none" placeholder="Month" />
-              <input type="number" required value={newContribution.amount} onChange={(event) => setNewContribution((previous) => ({ ...previous, amount: event.target.value }))} className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none" placeholder="Amount" />
-              <button type="submit" disabled={submittingContribution} className="w-full rounded-xl bg-emerald-600 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-60">{submittingContribution ? 'Logging...' : 'Log Contribution'}</button>
+              <select required value={newContribution.memberName} onChange={(event) => setNewContribution((previous) => ({ ...previous, memberName: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20">
+                <option value="">Select member</option>
+                {members.map((member) => (
+                  <option key={member.id} value={member.name}>{member.name}</option>
+                ))}
+              </select>
+              <input type="text" required value={newContribution.month} onChange={(event) => setNewContribution((previous) => ({ ...previous, month: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Month" />
+              <label className="block text-xs font-semibold text-slate-300">Payment Date</label>
+              <input type="date" value={newContribution.paymentDate} onChange={(event) => setNewContribution((previous) => ({ ...previous, paymentDate: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" />
+              <div className="grid grid-cols-2 gap-3">
+                <input type="number" min="0" value={newContribution.welfare} onChange={(event) => setNewContribution((previous) => ({ ...previous, welfare: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Welfare" />
+                <input type="number" min="0" value={newContribution.merryGoRound} onChange={(event) => setNewContribution((previous) => ({ ...previous, merryGoRound: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Merry-go-round" />
+                <input type="number" min="0" value={newContribution.insurance} onChange={(event) => setNewContribution((previous) => ({ ...previous, insurance: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Insurance" />
+                <input type="number" min="0" value={newContribution.bereavedFamily} onChange={(event) => setNewContribution((previous) => ({ ...previous, bereavedFamily: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Bereaved family" />
+              </div>
+              <input type="number" min="0" value={newContribution.paidAmount} onChange={(event) => setNewContribution((previous) => ({ ...previous, paidAmount: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Paid amount / partial payment" />
+              <select value={newContribution.paymentStatus} onChange={(event) => setNewContribution((previous) => ({ ...previous, paymentStatus: event.target.value as PaymentStatus }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20">
+                <option value="Pending">Pending</option>
+                <option value="Paid">Paid</option>
+              </select>
+              <div className="rounded-2xl border border-emerald-300/20 bg-emerald-400/10 px-4 py-3 text-sm font-semibold text-emerald-100">
+                Expected: {formatCurrency(newContributionTotal)} • Paid: {formatCurrency(newContributionPaidAmount)} • Balance: {formatCurrency(newContributionBalance)}
+              </div>
+              <button type="submit" disabled={submittingContribution} className="w-full rounded-2xl border border-emerald-300/20 bg-emerald-400/20 py-2 text-sm font-semibold text-emerald-50 shadow-lg shadow-emerald-950/20 backdrop-blur-xl transition hover:bg-emerald-400/30 disabled:opacity-60">{submittingContribution ? 'Saving...' : 'Add Monthly Contributor'}</button>
             </form>
           </div>
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+          <div className="rounded-[2rem] border border-white/10 bg-white/[0.07] p-5 shadow-2xl shadow-black/20 ring-1 ring-white/5 backdrop-blur-2xl">
+            <h3 className="mb-2 text-lg font-bold text-white">Generate Monthly Rows</h3>
+            <p className="mb-4 text-xs text-slate-400">Create one contribution row for every current member, skipping members who already have a row for the selected month.</p>
+            <form onSubmit={handleGenerateMonthlyRows} className="space-y-3.5">
+              <input type="text" required value={generationMonth} onChange={(event) => setGenerationMonth(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Month e.g. July" />
+              <label className="block text-xs font-semibold text-slate-300">Default Payment Date</label>
+              <input type="date" value={monthlyGenerationDefaults.paymentDate} onChange={(event) => setMonthlyGenerationDefaults((previous) => ({ ...previous, paymentDate: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" />
+              <div className="grid grid-cols-2 gap-3">
+                <input type="number" min="0" value={monthlyGenerationDefaults.welfare} onChange={(event) => setMonthlyGenerationDefaults((previous) => ({ ...previous, welfare: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Default welfare" />
+                <input type="number" min="0" value={monthlyGenerationDefaults.merryGoRound} onChange={(event) => setMonthlyGenerationDefaults((previous) => ({ ...previous, merryGoRound: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Default merry-go-round" />
+                <input type="number" min="0" value={monthlyGenerationDefaults.insurance} onChange={(event) => setMonthlyGenerationDefaults((previous) => ({ ...previous, insurance: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Default insurance" />
+                <input type="number" min="0" value={monthlyGenerationDefaults.bereavedFamily} onChange={(event) => setMonthlyGenerationDefaults((previous) => ({ ...previous, bereavedFamily: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Default bereaved" />
+              </div>
+              <select value={monthlyGenerationDefaults.paymentStatus} onChange={(event) => setMonthlyGenerationDefaults((previous) => ({ ...previous, paymentStatus: event.target.value as PaymentStatus }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20">
+                <option value="Pending">Pending</option>
+                <option value="Paid">Paid</option>
+              </select>
+              <div className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 px-4 py-3 text-xs text-cyan-50">
+                <div className="font-semibold">Rows to create: {generationMissingMembers.length} / {generationEligibleMembers.length}</div>
+                <div className="mt-1 text-slate-300">Default expected per row: {formatCurrency(generationDefaultTotal)}</div>
+              </div>
+              <button type="submit" disabled={generatingMonthlyRows || generationMissingMembers.length === 0} className="w-full rounded-2xl border border-fuchsia-300/20 bg-fuchsia-400/20 py-2 text-sm font-semibold text-fuchsia-50 shadow-lg shadow-fuchsia-950/20 backdrop-blur-xl transition hover:bg-fuchsia-400/30 disabled:opacity-60">{generatingMonthlyRows ? 'Generating...' : 'Generate For All Members'}</button>
+            </form>
+          </div>
+
+          <div className="rounded-[2rem] border border-white/10 bg-white/[0.07] p-5 shadow-2xl shadow-black/20 ring-1 ring-white/5 backdrop-blur-2xl">
             <h3 className="mb-4 text-lg font-bold text-white">Schedule Round</h3>
             <form onSubmit={handleAddRoundSubmit} className="space-y-3.5">
-              <input type="number" required value={newRound.roundNumber} onChange={(event) => setNewRound((previous) => ({ ...previous, roundNumber: event.target.value }))} className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none" placeholder="Round number" />
-              <input type="text" required value={newRound.recipientName} onChange={(event) => setNewRound((previous) => ({ ...previous, recipientName: event.target.value }))} className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none" placeholder="Recipient name" />
-              <input type="number" value={newRound.payoutAmount} onChange={(event) => setNewRound((previous) => ({ ...previous, payoutAmount: event.target.value }))} className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none" placeholder="Payout amount" />
-              <select value={newRound.status} onChange={(event) => setNewRound((previous) => ({ ...previous, status: event.target.value as RoundStatus }))} className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none">
+              <input type="number" required value={newRound.roundNumber} onChange={(event) => setNewRound((previous) => ({ ...previous, roundNumber: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Round number" />
+              <input type="text" required value={newRound.recipientName} onChange={(event) => setNewRound((previous) => ({ ...previous, recipientName: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Recipient name" />
+              <label className="block text-xs font-semibold text-slate-300">Payout Date</label>
+              <input type="date" value={newRound.payoutDate} onChange={(event) => setNewRound((previous) => ({ ...previous, payoutDate: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" />
+              <input type="number" value={newRound.payoutAmount} onChange={(event) => setNewRound((previous) => ({ ...previous, payoutAmount: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Payout amount" />
+              <select value={newRound.status} onChange={(event) => setNewRound((previous) => ({ ...previous, status: event.target.value as RoundStatus }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20">
                 <option value="Upcoming">Upcoming</option>
                 <option value="Current">Current</option>
                 <option value="Completed">Completed</option>
               </select>
-              <button type="submit" disabled={submittingRound} className="w-full rounded-xl bg-indigo-600 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-60">{submittingRound ? 'Scheduling...' : 'Commit Round'}</button>
+              <button type="submit" disabled={submittingRound} className="w-full rounded-2xl border border-indigo-300/20 bg-indigo-400/20 py-2 text-sm font-semibold text-indigo-50 shadow-lg shadow-indigo-950/20 backdrop-blur-xl transition hover:bg-indigo-400/30 disabled:opacity-60">{submittingRound ? 'Scheduling...' : 'Commit Round'}</button>
             </form>
           </div>
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+          <div className="rounded-[2rem] border border-white/10 bg-white/[0.07] p-5 shadow-2xl shadow-black/20 ring-1 ring-white/5 backdrop-blur-2xl">
             <h3 className="mb-4 text-lg font-bold text-white">Add Insurance Provider</h3>
             <form onSubmit={handleAddInsurancePolicySubmit} className="space-y-3.5">
-              <input type="text" required value={newInsurancePolicy.providerName} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, providerName: event.target.value }))} className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none" placeholder="Provider name" />
-              <input type="text" value={newInsurancePolicy.policyNumber} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, policyNumber: event.target.value }))} className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none" placeholder="Policy number" />
-              <input type="number" value={newInsurancePolicy.premiumTarget} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, premiumTarget: event.target.value }))} className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none" placeholder="Premium target" />
-              <input type="number" value={newInsurancePolicy.lastRespectBenefit} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, lastRespectBenefit: event.target.value }))} className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none" placeholder="Last respect benefit" />
-              <button type="submit" disabled={submittingInsurance} className="w-full rounded-xl bg-cyan-600 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:opacity-60">{submittingInsurance ? 'Saving...' : 'Add Provider'}</button>
+              <input type="text" required value={newInsurancePolicy.providerName} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, providerName: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Provider name" />
+              <input type="text" value={newInsurancePolicy.policyNumber} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, policyNumber: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Policy number" />
+              <label className="block text-xs font-semibold text-slate-300">Policy Start Date</label>
+              <input type="date" value={newInsurancePolicy.policyStartDate} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, policyStartDate: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" />
+              <label className="block text-xs font-semibold text-slate-300">Policy End Date</label>
+              <input type="date" value={newInsurancePolicy.policyEndDate} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, policyEndDate: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" />
+              <input type="number" value={newInsurancePolicy.premiumTarget} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, premiumTarget: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Premium target" />
+              <input type="number" value={newInsurancePolicy.providerContribution} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, providerContribution: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Provider contribution" />
+              <input type="number" value={newInsurancePolicy.lastRespectBenefit} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, lastRespectBenefit: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Last respect benefit" />
+              <button type="submit" disabled={submittingInsurance} className="w-full rounded-2xl border border-cyan-300/20 bg-cyan-400/20 py-2 text-sm font-semibold text-cyan-50 shadow-lg shadow-cyan-950/20 backdrop-blur-xl transition hover:bg-cyan-400/30 disabled:opacity-60">{submittingInsurance ? 'Saving...' : 'Add Provider'}</button>
             </form>
           </div>
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+          <div className="rounded-[2rem] border border-white/10 bg-white/[0.07] p-5 shadow-2xl shadow-black/20 ring-1 ring-white/5 backdrop-blur-2xl">
             <h3 className="mb-4 text-lg font-bold text-white">Add Bereaved Case</h3>
             <form onSubmit={handleAddBereavedCaseSubmit} className="space-y-3.5">
-              <input type="text" required value={newBereavedCase.memberName} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, memberName: event.target.value }))} className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none" placeholder="Bereaved member name" />
-              <input type="text" value={newBereavedCase.familyContact} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, familyContact: event.target.value }))} className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none" placeholder="Family contact" />
-              <input type="number" value={newBereavedCase.targetAmount} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, targetAmount: event.target.value }))} className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none" placeholder="Target amount" />
-              <input type="number" value={newBereavedCase.collectedAmount} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, collectedAmount: event.target.value }))} className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none" placeholder="Collected amount" />
-              <button type="submit" disabled={submittingBereavedCase} className="w-full rounded-xl bg-rose-600 py-2 text-sm font-semibold text-white hover:bg-rose-500 disabled:opacity-60">{submittingBereavedCase ? 'Saving...' : 'Add Case'}</button>
+              <input type="text" required value={newBereavedCase.memberName} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, memberName: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Bereaved member name" />
+              <input type="text" value={newBereavedCase.familyContact} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, familyContact: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Family contact" />
+              <label className="block text-xs font-semibold text-slate-300">Case Date</label>
+              <input type="date" value={newBereavedCase.caseDate} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, caseDate: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" />
+              <input type="number" value={newBereavedCase.targetAmount} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, targetAmount: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Target amount" />
+              <input type="number" value={newBereavedCase.collectedAmount} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, collectedAmount: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Collected amount" />
+              <textarea value={newBereavedCase.notes} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, notes: event.target.value }))} className="min-h-20 w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Notes" />
+              <button type="submit" disabled={submittingBereavedCase} className="w-full rounded-2xl border border-rose-300/20 bg-rose-400/20 py-2 text-sm font-semibold text-rose-50 shadow-lg shadow-rose-950/20 backdrop-blur-xl transition hover:bg-rose-400/30 disabled:opacity-60">{submittingBereavedCase ? 'Saving...' : 'Add Case'}</button>
             </form>
           </div>
         </div>
@@ -793,58 +1579,62 @@ export default function DashboardPage() {
           title="Member Tracker"
           content={
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-800">
+              <table className="min-w-full divide-y divide-white/10 overflow-hidden">
                 <thead>
                   <tr>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-400">Identity Details</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-400">Communication</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-400">Insurance Amount</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-400">Status</th>
-                    <th className="px-4 py-3 text-right text-sm font-semibold text-slate-400">Actions</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Identity Details</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Communication</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Insurance Amount</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Status</th>
+                    <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/50">
+                <tbody className="divide-y divide-white/10/50">
                   {members.map((member) => {
                     const isEditing = editingMemberId === member.id;
 
                     return (
-                      <tr key={member.id} className="transition-colors hover:bg-slate-900/50">
+                      <tr key={member.id} className="transition-colors hover:bg-white/[0.04]">
                         <td className="px-4 py-3">
                           {isEditing ? (
-                            <input type="text" name="name" value={editForm.name || ''} onChange={handleInputChange} className="mb-1 block rounded border border-slate-700 bg-slate-800 px-2 py-1 text-sm text-white focus:border-cyan-500 focus:outline-none" />
+                            <input type="text" name="name" value={editForm.name || ''} onChange={handleInputChange} className="mb-1 block rounded-xl border border-white/10 bg-white/[0.08] px-2 py-1 text-sm text-white focus:border-cyan-500 focus:outline-none" />
                           ) : (
                             <span className="block font-semibold text-white">{member.name}</span>
                           )}
-                          <span className="text-xs text-slate-500">Joined: {member.joinDate}</span>
+                          {isEditing ? (
+                            <input type="date" name="joinDate" value={editForm.joinDate || todayIso()} onChange={handleInputChange} className="mt-1 block rounded-xl border border-white/10 bg-white/[0.08] px-2 py-1 text-xs text-white focus:border-cyan-500 focus:outline-none" />
+                          ) : (
+                            <span className="text-xs text-slate-400">Joined: {formatCalendarDate(member.joinDate)}</span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-sm">
                           {isEditing ? (
                             <>
-                              <input type="email" name="email" value={editForm.email || ''} onChange={handleInputChange} className="mb-1 block w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-white focus:border-cyan-500 focus:outline-none" placeholder="Email" />
-                              <input type="text" name="contact" value={editForm.contact || ''} onChange={handleInputChange} className="block w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-white focus:border-cyan-500 focus:outline-none" placeholder="Contact" />
+                              <input type="email" name="email" value={editForm.email || ''} onChange={handleInputChange} className="mb-1 block w-full rounded-xl border border-white/10 bg-white/[0.08] px-2 py-1 text-xs text-white focus:border-cyan-500 focus:outline-none" placeholder="Email" />
+                              <input type="text" name="contact" value={editForm.contact || ''} onChange={handleInputChange} className="block w-full rounded-xl border border-white/10 bg-white/[0.08] px-2 py-1 text-xs text-white focus:border-cyan-500 focus:outline-none" placeholder="Contact" />
                             </>
                           ) : (
                             <>
                               <span className="block text-slate-300">{member.email || '--'}</span>
-                              <span className="block text-xs text-slate-500">{member.contact || '--'}</span>
+                              <span className="block text-xs text-slate-400">{member.contact || '--'}</span>
                             </>
                           )}
                         </td>
                         <td className="px-4 py-3 text-sm">
                           {isEditing ? (
-                            <input type="number" name="insurancePaid" value={editForm.insurancePaid ?? 0} onChange={handleInputChange} className="w-28 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-sm text-white focus:border-cyan-500 focus:outline-none" />
+                            <input type="number" name="insurancePaid" value={editForm.insurancePaid ?? 0} onChange={handleInputChange} className="w-28 rounded-xl border border-white/10 bg-white/[0.08] px-2 py-1 text-sm text-white focus:border-cyan-500 focus:outline-none" />
                           ) : (
                             <span className="font-medium text-emerald-300">{formatCurrency(member.insurancePaid)}</span>
                           )}
                         </td>
                         <td className="px-4 py-3 text-sm">
                           {isEditing ? (
-                            <select name="status" value={editForm.status || 'Pending'} onChange={handleInputChange} className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-sm text-white focus:border-cyan-500 focus:outline-none">
+                            <select name="status" value={editForm.status || 'Pending'} onChange={handleInputChange} className="rounded-xl border border-white/10 bg-white/[0.08] px-2 py-1 text-sm text-white focus:border-cyan-500 focus:outline-none">
                               <option value="Pending">Pending</option>
                               <option value="Paid">Paid</option>
                             </select>
                           ) : (
-                            <span className={`rounded-full px-3 py-1 text-xs font-bold ${member.status === 'Paid' ? 'bg-emerald-400/10 text-emerald-300' : 'bg-amber-400/10 text-amber-300'}`}>
+                            <span className={`rounded-full px-3 py-1 text-xs font-bold ${member.status === 'Paid' ? 'bg-emerald-400/10 text-emerald-300 border border-emerald-300/20' : 'bg-amber-400/10 text-amber-300 border border-amber-300/20'}`}>
                               {member.status}
                             </span>
                           )}
@@ -852,8 +1642,8 @@ export default function DashboardPage() {
                         <td className="px-4 py-3 text-right text-sm font-medium">
                           {isEditing ? (
                             <div className="flex justify-end gap-2">
-                              <button onClick={() => saveMemberChanges(member.id)} className="rounded-lg bg-emerald-600 px-3 py-1 text-xs text-white transition-colors hover:bg-emerald-500" type="button">Save</button>
-                              <button onClick={() => setEditingMemberId(null)} className="rounded-lg bg-slate-800 px-3 py-1 text-xs text-slate-300 transition-colors hover:bg-slate-700" type="button">Cancel</button>
+                              <button onClick={() => saveMemberChanges(member.id)} className="rounded-xl border border-emerald-300/20 bg-emerald-400/20 px-3 py-1 text-xs text-emerald-50 transition hover:bg-emerald-400/30" type="button">Save</button>
+                              <button onClick={() => setEditingMemberId(null)} className="rounded-xl border border-white/10 bg-white/10 px-3 py-1 text-xs text-slate-100 transition hover:bg-white/15" type="button">Cancel</button>
                             </div>
                           ) : (
                             <div className="flex items-center justify-end gap-3">
@@ -866,7 +1656,7 @@ export default function DashboardPage() {
                     );
                   })}
                   {members.length === 0 && (
-                    <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-slate-500">No members yet.</td></tr>
+                    <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-slate-400">No members yet.</td></tr>
                   )}
                 </tbody>
               </table>
