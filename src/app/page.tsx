@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { initializeApp, getApp, getApps } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, getFirestore, updateDoc } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, getFirestore, setDoc, updateDoc } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyAoaJmF72UdLDd7kKfdvRMH_j_NFL8KZj8',
@@ -22,8 +22,10 @@ const CURRENT_GROUP_ID = 'demo_group_01';
 const ADMIN_EMAILS = ['jiranimwema202420@gmail.com'];
 
 type PaymentStatus = 'Paid' | 'Pending';
-type UserRole = 'Guest' | 'Member' | 'Treasurer' | 'Admin';
+type UserRole = 'Guest' | 'Member' | 'Chairperson' | 'Treasurer' | 'Admin';
 type ProtectedRole = Exclude<UserRole, 'Guest'>;
+type ManagedUserRole = Exclude<UserRole, 'Guest'>;
+type MembershipStatus = 'active' | 'inactive' | 'disabled';
 type VerificationStatus = 'Unverified' | 'Verified' | 'Rejected';
 type RoundStatus = 'Completed' | 'Current' | 'Upcoming';
 type InsuranceStatus = 'Active' | 'Pending' | 'Expired';
@@ -120,10 +122,26 @@ interface AuditLog {
   action: string;
   module: string;
   actor: string;
+  actorUid?: string;
+  actorEmail?: string;
   targetId?: string;
   targetName?: string;
   details: string;
   createdAt: string;
+}
+
+interface RoleMembership {
+  id: string;
+  uid: string;
+  email: string;
+  displayName: string;
+  role: ManagedUserRole;
+  status: MembershipStatus;
+  groupId: string;
+  createdAt?: string;
+  updatedAt?: string;
+  createdBy?: string;
+  updatedBy?: string;
 }
 
 interface StatCardProps {
@@ -140,6 +158,7 @@ interface ModuleProps {
 const roleRank: Record<UserRole, number> = {
   Guest: 0,
   Member: 1,
+  Chairperson: 1.5,
   Treasurer: 2,
   Admin: 3,
 };
@@ -149,6 +168,7 @@ const normalizeUserRole = (value: unknown): UserRole => {
 
   if (normalized === 'admin' || normalized === 'administrator' || normalized === 'owner') return 'Admin';
   if (normalized === 'treasurer' || normalized === 'finance' || normalized === 'official') return 'Treasurer';
+  if (normalized === 'chairperson' || normalized === 'chair' || normalized === 'chairman' || normalized === 'chairwoman') return 'Chairperson';
   if (normalized === 'member') return 'Member';
 
   return 'Member';
@@ -177,6 +197,23 @@ const resolveSignedInRole = async (firebaseUser: User): Promise<UserRole> => {
   }
 
   return 'Member';
+};
+
+
+const managedRoleOptions: ManagedUserRole[] = ['Member', 'Chairperson', 'Treasurer', 'Admin'];
+const membershipStatusOptions: MembershipStatus[] = ['active', 'inactive', 'disabled'];
+
+const normalizeMembershipStatus = (value: unknown): MembershipStatus => {
+  const normalized = String(value || 'active').trim().toLowerCase();
+
+  if (normalized === 'inactive') return 'inactive';
+  if (normalized === 'disabled' || normalized === 'suspended') return 'disabled';
+  return 'active';
+};
+
+const normalizeManagedRole = (value: unknown): ManagedUserRole => {
+  const role = normalizeUserRole(value);
+  return role === 'Guest' ? 'Member' : role;
 };
 
 const todayIso = () => new Date().toISOString().split('T')[0];
@@ -279,6 +316,9 @@ export default function DashboardPage() {
   const [insurancePolicies, setInsurancePolicies] = useState<InsurancePolicy[]>([]);
   const [bereavedCases, setBereavedCases] = useState<BereavedCase[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [roleMemberships, setRoleMemberships] = useState<RoleMembership[]>([]);
+  const [roleSearch, setRoleSearch] = useState('');
+  const [roleStatusFilter, setRoleStatusFilter] = useState<'All' | MembershipStatus>('All');
   const [auditModuleFilter, setAuditModuleFilter] = useState('All');
   const [auditSearch, setAuditSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -303,6 +343,7 @@ export default function DashboardPage() {
   const [submittingRound, setSubmittingRound] = useState(false);
   const [submittingInsurance, setSubmittingInsurance] = useState(false);
   const [submittingBereavedCase, setSubmittingBereavedCase] = useState(false);
+  const [submittingRoleMember, setSubmittingRoleMember] = useState(false);
 
   const [newMember, setNewMember] = useState({
     name: '',
@@ -365,6 +406,14 @@ export default function DashboardPage() {
     notes: '',
   });
 
+  const [newRoleMember, setNewRoleMember] = useState({
+    uid: '',
+    email: '',
+    displayName: '',
+    role: 'Member' as ManagedUserRole,
+    status: 'active' as MembershipStatus,
+  });
+
   const actorName = currentUser?.displayName || currentUser?.email || currentUserRole;
   const hasRoleAtLeast = (minimumRole: ProtectedRole) => roleRank[currentUserRole] >= roleRank[minimumRole];
   const canManageMembers = hasRoleAtLeast('Admin');
@@ -410,11 +459,22 @@ export default function DashboardPage() {
     targetId = '',
     targetName = '',
     details,
-  }: Omit<AuditLog, 'id' | 'createdAt'>) => {
+  }: {
+    action: string;
+    module: string;
+    actor?: string;
+    targetId?: string;
+    targetName?: string;
+    details: string;
+  }) => {
+    if (!currentUser) return;
+
     const auditData = {
       action,
       module,
       actor,
+      actorUid: currentUser.uid,
+      actorEmail: currentUser.email || '',
       targetId,
       targetName,
       details,
@@ -456,6 +516,12 @@ export default function DashboardPage() {
 
   useEffect(() => {
     async function fetchData() {
+      if (!currentUser || currentUserRole === 'Guest') {
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
       try {
         const membersSnapshot = await getDocs(collection(db, 'groups', CURRENT_GROUP_ID, 'members'));
         const membersList = membersSnapshot.docs.map((documentSnapshot) => {
@@ -533,22 +599,50 @@ export default function DashboardPage() {
         })) as BereavedCase[];
         setBereavedCases(bereavedList);
 
-        const auditSnapshot = await getDocs(collection(db, 'groups', CURRENT_GROUP_ID, 'auditLogs'));
-        const auditList = auditSnapshot.docs.map((documentSnapshot) => {
-          const data = documentSnapshot.data();
+        if (canManageMembers) {
+          const membershipsSnapshot = await getDocs(collection(db, 'groups', CURRENT_GROUP_ID, 'memberships'));
+          const membershipsList = membershipsSnapshot.docs.map((documentSnapshot) => {
+            const data = documentSnapshot.data();
 
-          return {
-            id: documentSnapshot.id,
-            action: typeof data.action === 'string' ? data.action : 'Unknown Action',
-            module: typeof data.module === 'string' ? data.module : 'General',
-            actor: typeof data.actor === 'string' ? data.actor : 'System',
-            targetId: typeof data.targetId === 'string' ? data.targetId : '',
-            targetName: typeof data.targetName === 'string' ? data.targetName : '',
-            details: typeof data.details === 'string' ? data.details : '',
-            createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
-          } as AuditLog;
-        });
-        setAuditLogs(auditList.sort((firstLog, secondLog) => secondLog.createdAt.localeCompare(firstLog.createdAt)).slice(0, 100));
+            return {
+              id: documentSnapshot.id,
+              uid: typeof data.uid === 'string' ? data.uid : documentSnapshot.id,
+              email: typeof data.email === 'string' ? data.email : '',
+              displayName: typeof data.displayName === 'string' ? data.displayName : '',
+              role: normalizeManagedRole(data.role),
+              status: normalizeMembershipStatus(data.status || data.membershipStatus),
+              groupId: typeof data.groupId === 'string' ? data.groupId : CURRENT_GROUP_ID,
+              createdAt: typeof data.createdAt === 'string' ? data.createdAt : undefined,
+              updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined,
+              createdBy: typeof data.createdBy === 'string' ? data.createdBy : undefined,
+              updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : undefined,
+            } as RoleMembership;
+          });
+          setRoleMemberships(membershipsList.sort((first, second) => (first.email || first.displayName).localeCompare(second.email || second.displayName)));
+        }
+
+        if (canViewReports) {
+          const auditSnapshot = await getDocs(collection(db, 'groups', CURRENT_GROUP_ID, 'auditLogs'));
+          const auditList = auditSnapshot.docs.map((documentSnapshot) => {
+            const data = documentSnapshot.data();
+
+            return {
+              id: documentSnapshot.id,
+              action: typeof data.action === 'string' ? data.action : 'Unknown Action',
+              module: typeof data.module === 'string' ? data.module : 'General',
+              actor: typeof data.actor === 'string' ? data.actor : 'System',
+              actorUid: typeof data.actorUid === 'string' ? data.actorUid : '',
+              actorEmail: typeof data.actorEmail === 'string' ? data.actorEmail : '',
+              targetId: typeof data.targetId === 'string' ? data.targetId : '',
+              targetName: typeof data.targetName === 'string' ? data.targetName : '',
+              details: typeof data.details === 'string' ? data.details : '',
+              createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
+            } as AuditLog;
+          });
+          setAuditLogs(auditList.sort((firstLog, secondLog) => secondLog.createdAt.localeCompare(firstLog.createdAt)).slice(0, 100));
+        } else {
+          setAuditLogs([]);
+        }
       } catch (error) {
         console.error('Error loading dashboard metrics:', error);
       } finally {
@@ -557,7 +651,208 @@ export default function DashboardPage() {
     }
 
     fetchData();
-  }, []);
+  }, [currentUser, currentUserRole]);
+
+
+  useEffect(() => {
+    async function fetchRoleMemberships() {
+      if (!currentUser || !canManageMembers) {
+        setRoleMemberships([]);
+        return;
+      }
+
+      try {
+        const membershipsSnapshot = await getDocs(collection(db, 'groups', CURRENT_GROUP_ID, 'memberships'));
+        const membershipsList = membershipsSnapshot.docs.map((documentSnapshot) => {
+          const data = documentSnapshot.data();
+
+          return {
+            id: documentSnapshot.id,
+            uid: typeof data.uid === 'string' ? data.uid : documentSnapshot.id,
+            email: typeof data.email === 'string' ? data.email : '',
+            displayName: typeof data.displayName === 'string' ? data.displayName : '',
+            role: normalizeManagedRole(data.role),
+            status: normalizeMembershipStatus(data.status || data.membershipStatus),
+            groupId: typeof data.groupId === 'string' ? data.groupId : CURRENT_GROUP_ID,
+            createdAt: typeof data.createdAt === 'string' ? data.createdAt : undefined,
+            updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined,
+            createdBy: typeof data.createdBy === 'string' ? data.createdBy : undefined,
+            updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : undefined,
+          } as RoleMembership;
+        });
+
+        setRoleMemberships(membershipsList.sort((first, second) => (first.email || first.displayName).localeCompare(second.email || second.displayName)));
+      } catch (error) {
+        console.error('Failed to load role memberships:', error);
+      }
+    }
+
+    fetchRoleMemberships();
+  }, [currentUser, canManageMembers]);
+
+  const upsertRoleMembershipState = (membership: RoleMembership) => {
+    setRoleMemberships((previous) => {
+      const next = previous.some((item) => item.uid === membership.uid)
+        ? previous.map((item) => (item.uid === membership.uid ? membership : item))
+        : [...previous, membership];
+
+      return next.sort((first, second) => (first.email || first.displayName).localeCompare(second.email || second.displayName));
+    });
+  };
+
+  const saveRoleMembership = async (membership: RoleMembership) => {
+    const rolePayload = {
+      uid: membership.uid,
+      email: membership.email,
+      displayName: membership.displayName,
+      role: membership.role,
+      status: membership.status,
+      membershipStatus: membership.status,
+      groupId: CURRENT_GROUP_ID,
+      updatedAt: new Date().toISOString(),
+      updatedBy: actorName,
+    };
+
+    await Promise.all([
+      setDoc(doc(db, 'groups', CURRENT_GROUP_ID, 'memberships', membership.uid), rolePayload, { merge: true }),
+      setDoc(doc(db, 'memberships', `membership_${membership.uid}`), rolePayload, { merge: true }),
+    ]);
+  };
+
+  const handleRoleMembershipSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!requireRole('Admin', 'manage user roles')) return;
+
+    const uid = newRoleMember.uid.trim();
+    const email = newRoleMember.email.trim().toLowerCase();
+    const displayName = newRoleMember.displayName.trim();
+
+    if (!uid || !email) {
+      alert('Enter the Firebase Auth UID and email for the user.');
+      return;
+    }
+
+    setSubmittingRoleMember(true);
+    try {
+      const existingMembership = roleMemberships.find((membership) => membership.uid === uid);
+      const membership: RoleMembership = {
+        id: uid,
+        uid,
+        email,
+        displayName,
+        role: newRoleMember.role,
+        status: newRoleMember.status,
+        groupId: CURRENT_GROUP_ID,
+        createdAt: existingMembership?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        createdBy: existingMembership?.createdBy || actorName,
+        updatedBy: actorName,
+      };
+
+      await saveRoleMembership(membership);
+      upsertRoleMembershipState(membership);
+      await writeAuditLog({
+        action: existingMembership ? 'Update User Role' : 'Create User Role',
+        module: 'Roles',
+        targetId: uid,
+        targetName: email,
+        details: `${email} set to ${newRoleMember.role} with ${newRoleMember.status} status.`,
+      });
+      setNewRoleMember({ uid: '', email: '', displayName: '', role: 'Member', status: 'active' });
+    } catch (error) {
+      console.error('Failed to save role membership:', error);
+      alert('Failed to save role membership. Confirm you are signed in as Admin.');
+    } finally {
+      setSubmittingRoleMember(false);
+    }
+  };
+
+  const handleCurrentUserRoleBootstrap = () => {
+    if (!currentUser) return;
+
+    setNewRoleMember({
+      uid: currentUser.uid,
+      email: currentUser.email || '',
+      displayName: currentUser.displayName || '',
+      role: 'Admin',
+      status: 'active',
+    });
+  };
+
+  const handleRoleChange = async (membership: RoleMembership, role: ManagedUserRole) => {
+    if (!requireRole('Admin', 'change user roles')) return;
+
+    const updatedMembership: RoleMembership = {
+      ...membership,
+      role,
+      updatedAt: new Date().toISOString(),
+      updatedBy: actorName,
+    };
+
+    try {
+      await saveRoleMembership(updatedMembership);
+      upsertRoleMembershipState(updatedMembership);
+      await writeAuditLog({
+        action: 'Change User Role',
+        module: 'Roles',
+        targetId: membership.uid,
+        targetName: membership.email || membership.displayName,
+        details: `${membership.email || membership.displayName} changed to ${role}.`,
+      });
+    } catch (error) {
+      console.error('Failed to update user role:', error);
+      alert('Failed to update user role.');
+    }
+  };
+
+  const handleRoleStatusChange = async (membership: RoleMembership, status: MembershipStatus) => {
+    if (!requireRole('Admin', 'change user access status')) return;
+
+    const updatedMembership: RoleMembership = {
+      ...membership,
+      status,
+      updatedAt: new Date().toISOString(),
+      updatedBy: actorName,
+    };
+
+    try {
+      await saveRoleMembership(updatedMembership);
+      upsertRoleMembershipState(updatedMembership);
+      await writeAuditLog({
+        action: 'Change User Status',
+        module: 'Roles',
+        targetId: membership.uid,
+        targetName: membership.email || membership.displayName,
+        details: `${membership.email || membership.displayName} status changed to ${status}.`,
+      });
+    } catch (error) {
+      console.error('Failed to update user status:', error);
+      alert('Failed to update user status.');
+    }
+  };
+
+  const handleDeleteRoleMembership = async (membership: RoleMembership) => {
+    if (!requireRole('Admin', 'remove user access')) return;
+    if (!confirm(`Remove role access for ${membership.email || membership.displayName || membership.uid}?`)) return;
+
+    try {
+      await Promise.all([
+        deleteDoc(doc(db, 'groups', CURRENT_GROUP_ID, 'memberships', membership.uid)),
+        deleteDoc(doc(db, 'memberships', `membership_${membership.uid}`)),
+      ]);
+      setRoleMemberships((previous) => previous.filter((item) => item.uid !== membership.uid));
+      await writeAuditLog({
+        action: 'Remove User Role',
+        module: 'Roles',
+        targetId: membership.uid,
+        targetName: membership.email || membership.displayName,
+        details: `Removed role access for ${membership.email || membership.displayName || membership.uid}.`,
+      });
+    } catch (error) {
+      console.error('Failed to remove user role:', error);
+      alert('Failed to remove user role.');
+    }
+  };
 
   const handleAddMemberSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -1670,6 +1965,18 @@ export default function DashboardPage() {
   });
   const recentAuditCount = auditLogs.filter((log) => log.createdAt.slice(0, 10) === todayIso()).length;
 
+
+  const normalizedRoleSearch = roleSearch.trim().toLowerCase();
+  const filteredRoleMemberships = roleMemberships.filter((membership) => {
+    const matchesStatus = roleStatusFilter === 'All' || membership.status === roleStatusFilter;
+    const searchable = `${membership.uid} ${membership.email} ${membership.displayName} ${membership.role} ${membership.status}`.toLowerCase();
+    const matchesSearch = normalizedRoleSearch.length === 0 || searchable.includes(normalizedRoleSearch);
+    return matchesStatus && matchesSearch;
+  });
+  const activeRoleMembershipCount = roleMemberships.filter((membership) => membership.status === 'active').length;
+  const adminRoleMembershipCount = roleMemberships.filter((membership) => membership.status === 'active' && membership.role === 'Admin').length + (ADMIN_EMAILS.includes(currentUser?.email?.trim().toLowerCase() || '') ? 1 : 0);
+  const treasurerRoleMembershipCount = roleMemberships.filter((membership) => membership.status === 'active' && membership.role === 'Treasurer').length;
+
   const formatCurrency = (amount: number) => `KES ${amount.toLocaleString('en-US')}`;
 
   if (loading || authLoading) {
@@ -1711,6 +2018,7 @@ export default function DashboardPage() {
           <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-200">
             <p className="font-semibold text-white">{currentUser.displayName || currentUser.email}</p>
             <p className="text-xs text-slate-300">Role: <span className="font-bold text-cyan-200">{currentUserRole}</span></p>
+            <p className="text-xs text-slate-400">UID: <span className="font-mono">{currentUser.uid}</span></p>
           </div>
           <div className="flex flex-wrap gap-3">
             <button disabled={!canViewReports} onClick={exportContributionsCsv} className="rounded-2xl border border-emerald-300/20 bg-emerald-400/20 px-4 py-2 text-sm font-semibold text-emerald-100 shadow-lg shadow-emerald-950/20 backdrop-blur-xl transition hover:bg-emerald-400/30 disabled:cursor-not-allowed disabled:opacity-40" type="button">
@@ -1738,6 +2046,162 @@ export default function DashboardPage() {
             </div>
           }
         />
+
+        {canManageMembers ? (
+          <Module
+            title="Role Management"
+            content={
+              <div className="space-y-5">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                  <StatCard title="Active Users" value={activeRoleMembershipCount} detail="Role documents with active status" />
+                  <StatCard title="Admins" value={adminRoleMembershipCount} detail="Includes bootstrap admin email" />
+                  <StatCard title="Treasurers" value={treasurerRoleMembershipCount} detail="Finance access users" />
+                  <StatCard title="Current UID" value="Copy from header" detail="Use Firebase Auth UID when adding users" />
+                </div>
+
+                <form onSubmit={handleRoleMembershipSubmit} className="grid grid-cols-1 gap-3 rounded-[1.5rem] border border-white/10 bg-white/[0.05] p-4 md:grid-cols-6">
+                  <input
+                    value={newRoleMember.uid}
+                    onChange={(event) => setNewRoleMember((previous) => ({ ...previous, uid: event.target.value }))}
+                    placeholder="Firebase Auth UID"
+                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none md:col-span-2"
+                  />
+                  <input
+                    value={newRoleMember.email}
+                    onChange={(event) => setNewRoleMember((previous) => ({ ...previous, email: event.target.value }))}
+                    placeholder="User email"
+                    type="email"
+                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none md:col-span-2"
+                  />
+                  <input
+                    value={newRoleMember.displayName}
+                    onChange={(event) => setNewRoleMember((previous) => ({ ...previous, displayName: event.target.value }))}
+                    placeholder="Display name"
+                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none md:col-span-2"
+                  />
+                  <select
+                    value={newRoleMember.role}
+                    onChange={(event) => setNewRoleMember((previous) => ({ ...previous, role: event.target.value as ManagedUserRole }))}
+                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white focus:border-cyan-400 focus:outline-none"
+                  >
+                    {managedRoleOptions.map((role) => (
+                      <option className="bg-slate-900" key={role} value={role}>{role}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={newRoleMember.status}
+                    onChange={(event) => setNewRoleMember((previous) => ({ ...previous, status: event.target.value as MembershipStatus }))}
+                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white focus:border-cyan-400 focus:outline-none"
+                  >
+                    {membershipStatusOptions.map((status) => (
+                      <option className="bg-slate-900" key={status} value={status}>{status}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleCurrentUserRoleBootstrap}
+                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.13]"
+                  >
+                    Use My UID
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submittingRoleMember}
+                    className="rounded-2xl border border-cyan-300/20 bg-cyan-400/20 px-4 py-2 text-sm font-bold text-cyan-50 transition hover:bg-cyan-400/30 disabled:cursor-not-allowed disabled:opacity-50 md:col-span-3"
+                  >
+                    {submittingRoleMember ? 'Saving Role...' : 'Save Role Access'}
+                  </button>
+                </form>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <input
+                    type="search"
+                    value={roleSearch}
+                    onChange={(event) => setRoleSearch(event.target.value)}
+                    placeholder="Search UID, email, name, role..."
+                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none md:col-span-2"
+                  />
+                  <select
+                    value={roleStatusFilter}
+                    onChange={(event) => setRoleStatusFilter(event.target.value as 'All' | MembershipStatus)}
+                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white focus:border-cyan-400 focus:outline-none"
+                  >
+                    <option className="bg-slate-900" value="All">All statuses</option>
+                    {membershipStatusOptions.map((status) => (
+                      <option className="bg-slate-900" key={status} value={status}>{status}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-white/10 text-sm">
+                    <thead className="text-left text-xs uppercase tracking-[0.16em] text-slate-400">
+                      <tr>
+                        <th className="px-3 py-3">User</th>
+                        <th className="px-3 py-3">UID</th>
+                        <th className="px-3 py-3">Role</th>
+                        <th className="px-3 py-3">Status</th>
+                        <th className="px-3 py-3">Updated</th>
+                        <th className="px-3 py-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/10">
+                      {filteredRoleMemberships.map((membership) => (
+                        <tr key={membership.uid} className="transition hover:bg-white/[0.04]">
+                          <td className="px-3 py-3">
+                            <p className="font-semibold text-white">{membership.displayName || membership.email || 'Unnamed user'}</p>
+                            <p className="text-xs text-slate-400">{membership.email || 'No email saved'}</p>
+                          </td>
+                          <td className="max-w-[220px] truncate px-3 py-3 font-mono text-xs text-slate-300" title={membership.uid}>{membership.uid}</td>
+                          <td className="px-3 py-3">
+                            <select
+                              value={membership.role}
+                              onChange={(event) => handleRoleChange(membership, event.target.value as ManagedUserRole)}
+                              className="rounded-xl border border-white/10 bg-white/[0.08] px-2 py-1 text-xs text-white focus:border-cyan-400 focus:outline-none"
+                            >
+                              {managedRoleOptions.map((role) => (
+                                <option className="bg-slate-900" key={role} value={role}>{role}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="px-3 py-3">
+                            <select
+                              value={membership.status}
+                              onChange={(event) => handleRoleStatusChange(membership, event.target.value as MembershipStatus)}
+                              className="rounded-xl border border-white/10 bg-white/[0.08] px-2 py-1 text-xs text-white focus:border-cyan-400 focus:outline-none"
+                            >
+                              {membershipStatusOptions.map((status) => (
+                                <option className="bg-slate-900" key={status} value={status}>{status}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-400">{membership.updatedAt ? new Date(membership.updatedAt).toLocaleString('en-KE') : 'Not set'}</td>
+                          <td className="px-3 py-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteRoleMembership(membership)}
+                              className="rounded-xl border border-rose-300/20 bg-rose-400/15 px-3 py-1 text-xs font-semibold text-rose-100 transition hover:bg-rose-400/25"
+                            >
+                              Remove
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {filteredRoleMemberships.length === 0 ? (
+                    <p className="px-3 py-5 text-center text-sm text-slate-400">No role records match the current filters.</p>
+                  ) : null}
+                </div>
+
+                <div className="rounded-2xl border border-amber-300/20 bg-amber-400/10 p-4 text-sm text-amber-50">
+                  <p className="font-semibold">How to add another user</p>
+                  <p className="mt-1 text-amber-100/80">Ask the user to sign in once, then copy their Firebase Authentication UID from Firebase Console &gt; Authentication &gt; Users. Add that UID here with their email and role.</p>
+                </div>
+              </div>
+            }
+          />
+        ) : null}
 
         <Module
           title="Stats"
