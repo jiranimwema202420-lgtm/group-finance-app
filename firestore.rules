@@ -1,0 +1,217 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isBootstrapAdmin() {
+      return signedIn()
+        && request.auth.token.email == 'jiranimwema202420@gmail.com';
+    }
+
+    function myGlobalMembershipId() {
+      return 'membership_' + request.auth.uid;
+    }
+
+    function hasMyGlobalMembership() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/memberships/$(myGlobalMembershipId()));
+    }
+
+    function myGlobalMembership() {
+      return get(/databases/$(database)/documents/memberships/$(myGlobalMembershipId()));
+    }
+
+    function hasMyGroupMembership(groupId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/groups/$(groupId)/memberships/$(request.auth.uid));
+    }
+
+    function myGroupMembership(groupId) {
+      return get(/databases/$(database)/documents/groups/$(groupId)/memberships/$(request.auth.uid));
+    }
+
+    function isGlobalGroupMember(groupId) {
+      return hasMyGlobalMembership()
+        && myGlobalMembership().data.groupId == groupId
+        && myGlobalMembership().data.role in [
+          'ADMIN',
+          'Admin',
+          'admin',
+          'TREASURER',
+          'Treasurer',
+          'treasurer',
+          'CHAIRPERSON',
+          'Chairperson',
+          'chairperson',
+          'MEMBER',
+          'Member',
+          'member'
+        ];
+    }
+
+    function isGroupMember(groupId) {
+      return hasMyGroupMembership(groupId)
+        && myGroupMembership(groupId).data.role in [
+          'ADMIN',
+          'Admin',
+          'admin',
+          'TREASURER',
+          'Treasurer',
+          'treasurer',
+          'CHAIRPERSON',
+          'Chairperson',
+          'chairperson',
+          'MEMBER',
+          'Member',
+          'member'
+        ];
+    }
+
+    function isMember(groupId) {
+      return isBootstrapAdmin()
+        || isGroupMember(groupId)
+        || isGlobalGroupMember(groupId);
+    }
+
+    function isGroupAdmin(groupId) {
+      return hasMyGroupMembership(groupId)
+        && myGroupMembership(groupId).data.role in ['ADMIN', 'Admin', 'admin'];
+    }
+
+    function isGlobalAdmin(groupId) {
+      return hasMyGlobalMembership()
+        && myGlobalMembership().data.groupId == groupId
+        && myGlobalMembership().data.role in ['ADMIN', 'Admin', 'admin'];
+    }
+
+    function isAdmin(groupId) {
+      return isBootstrapAdmin()
+        || isGroupAdmin(groupId)
+        || isGlobalAdmin(groupId);
+    }
+
+    function isGroupTreasurer(groupId) {
+      return hasMyGroupMembership(groupId)
+        && myGroupMembership(groupId).data.role in ['TREASURER', 'Treasurer', 'treasurer'];
+    }
+
+    function isGlobalTreasurer(groupId) {
+      return hasMyGlobalMembership()
+        && myGlobalMembership().data.groupId == groupId
+        && myGlobalMembership().data.role in ['TREASURER', 'Treasurer', 'treasurer'];
+    }
+
+    function isTreasurer(groupId) {
+      return isGroupTreasurer(groupId)
+        || isGlobalTreasurer(groupId);
+    }
+
+    function isFinanceOfficial(groupId) {
+      return isAdmin(groupId) || isTreasurer(groupId);
+    }
+
+    function hasValidMembershipPayload(groupId) {
+      return request.resource.data.groupId == groupId
+        && request.resource.data.role in [
+          'ADMIN',
+          'Admin',
+          'admin',
+          'TREASURER',
+          'Treasurer',
+          'treasurer',
+          'CHAIRPERSON',
+          'Chairperson',
+          'chairperson',
+          'MEMBER',
+          'Member',
+          'member'
+        ];
+    }
+
+    match /groups/{groupId} {
+      allow read: if isMember(groupId);
+      allow create, update, delete: if isAdmin(groupId);
+
+      match /members/{memberId} {
+        allow read: if isMember(groupId);
+        allow create, update, delete: if isAdmin(groupId);
+      }
+
+      match /contributions/{contributionId} {
+        allow read: if isMember(groupId);
+        allow create, update: if isFinanceOfficial(groupId);
+        allow delete: if isAdmin(groupId);
+      }
+
+      match /rounds/{roundId} {
+        allow read: if isMember(groupId);
+        allow create, update: if isFinanceOfficial(groupId);
+        allow delete: if isAdmin(groupId);
+      }
+
+      match /insurance/{policyId} {
+        allow read: if isMember(groupId);
+        allow create, update, delete: if isAdmin(groupId);
+      }
+
+      match /bereavedCases/{caseId} {
+        allow read: if isMember(groupId);
+        allow create, update, delete: if isAdmin(groupId);
+      }
+
+      match /auditLogs/{logId} {
+        allow read: if isFinanceOfficial(groupId);
+        allow create: if isFinanceOfficial(groupId)
+          && request.resource.data.actorUid == request.auth.uid;
+        allow update, delete: if false;
+      }
+
+      match /memberships/{userId} {
+        allow read: if signedIn() && (userId == request.auth.uid || isAdmin(groupId));
+        allow create, update: if isAdmin(groupId) && hasValidMembershipPayload(groupId);
+        allow delete: if isAdmin(groupId);
+      }
+    }
+
+    match /memberships/{membershipId} {
+      allow read: if signedIn()
+        && (
+          membershipId == myGlobalMembershipId()
+          || isBootstrapAdmin()
+          || isAdmin(resource.data.groupId)
+        );
+
+      allow create: if signedIn()
+        && (
+          isBootstrapAdmin()
+          || isAdmin(request.resource.data.groupId)
+        )
+        && hasValidMembershipPayload(request.resource.data.groupId);
+
+      allow update: if signedIn()
+        && (
+          isBootstrapAdmin()
+          || isAdmin(resource.data.groupId)
+        )
+        && hasValidMembershipPayload(request.resource.data.groupId);
+
+      allow delete: if signedIn()
+        && (
+          isBootstrapAdmin()
+          || isAdmin(resource.data.groupId)
+        );
+    }
+
+    match /users/{userId} {
+      allow read, write: if signedIn()
+        && (userId == request.auth.uid || isBootstrapAdmin());
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
