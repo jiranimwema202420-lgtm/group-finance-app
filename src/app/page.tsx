@@ -18,6 +18,7 @@ const db = getFirestore(app);
 const CURRENT_GROUP_ID = 'demo_group_01';
 
 type PaymentStatus = 'Paid' | 'Pending';
+type VerificationStatus = 'Unverified' | 'Verified' | 'Rejected';
 type RoundStatus = 'Completed' | 'Current' | 'Upcoming';
 type InsuranceStatus = 'Active' | 'Pending' | 'Expired';
 type BereavedStatus = 'Open' | 'Closed';
@@ -46,6 +47,10 @@ interface MonthlyContribution {
   balance?: number;
   paymentStatus: PaymentStatus;
   paymentDate: string;
+  verificationStatus?: VerificationStatus;
+  verifiedBy?: string;
+  verifiedAt?: string;
+  verificationNotes?: string;
   amount?: number;
   createdAt?: string;
   updatedAt?: string;
@@ -159,6 +164,11 @@ const getContributionBalance = (contribution: MonthlyContribution) => {
   return Math.max(expectedAmount - paidAmount, 0);
 };
 
+const normalizeVerificationStatus = (value: unknown): VerificationStatus => {
+  if (value === 'Verified' || value === 'Rejected') return value;
+  return 'Unverified';
+};
+
 const contributionToEditForm = (contribution: MonthlyContribution): ContributionEditForm => ({
   memberName: contribution.memberName || '',
   month: contribution.month || currentMonthName(),
@@ -218,6 +228,8 @@ export default function DashboardPage() {
   const [contributionMemberSearch, setContributionMemberSearch] = useState('');
   const [contributionMonthFilter, setContributionMonthFilter] = useState('All');
   const [contributionStatusFilter, setContributionStatusFilter] = useState<'All' | PaymentStatus>('All');
+  const [contributionVerificationFilter, setContributionVerificationFilter] = useState<'All' | VerificationStatus>('All');
+  const [statementMemberName, setStatementMemberName] = useState('');
   const [generationMonth, setGenerationMonth] = useState(currentMonthName());
 
   const [submittingMember, setSubmittingMember] = useState(false);
@@ -336,6 +348,10 @@ export default function DashboardPage() {
             balance,
             paymentStatus: balance <= 0 && expectedAmount > 0 ? 'Paid' : 'Pending',
             paymentDate: typeof data.paymentDate === 'string' ? data.paymentDate : todayIso(),
+            verificationStatus: normalizeVerificationStatus(data.verificationStatus),
+            verifiedBy: typeof data.verifiedBy === 'string' ? data.verifiedBy : '',
+            verifiedAt: typeof data.verifiedAt === 'string' ? data.verifiedAt : '',
+            verificationNotes: typeof data.verificationNotes === 'string' ? data.verificationNotes : '',
             createdAt: typeof data.createdAt === 'string' ? data.createdAt : undefined,
             updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined,
           } as MonthlyContribution;
@@ -435,6 +451,10 @@ export default function DashboardPage() {
         balance,
         paymentStatus,
         paymentDate: newContribution.paymentDate,
+        verificationStatus: 'Unverified' as VerificationStatus,
+        verifiedBy: '',
+        verifiedAt: '',
+        verificationNotes: '',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -517,6 +537,10 @@ export default function DashboardPage() {
             balance,
             paymentStatus,
             paymentDate: monthlyGenerationDefaults.paymentDate,
+            verificationStatus: 'Unverified',
+            verifiedBy: '',
+            verifiedAt: '',
+            verificationNotes: '',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
@@ -753,6 +777,10 @@ export default function DashboardPage() {
         balance,
         paymentStatus,
         paymentDate: contributionEditForm.paymentDate || todayIso(),
+        verificationStatus: 'Unverified' as VerificationStatus,
+        verifiedBy: '',
+        verifiedAt: '',
+        verificationNotes: 'Reset after contribution edit',
         updatedAt,
       };
 
@@ -792,6 +820,10 @@ export default function DashboardPage() {
         balance,
         paymentStatus,
         paymentDate,
+        verificationStatus: 'Unverified',
+        verifiedBy: '',
+        verifiedAt: '',
+        verificationNotes: 'Reset after payment status change',
         updatedAt,
       });
 
@@ -804,6 +836,10 @@ export default function DashboardPage() {
                 balance,
                 paymentStatus,
                 paymentDate,
+                verificationStatus: 'Unverified',
+                verifiedBy: '',
+                verifiedAt: '',
+                verificationNotes: 'Reset after payment status change',
                 updatedAt,
               }
             : contribution
@@ -812,6 +848,61 @@ export default function DashboardPage() {
     } catch (error) {
       console.error('Failed to update contribution status:', error);
       alert('Failed to update contribution status.');
+    }
+  };
+
+  const updateContributionVerification = async (id: string, verificationStatus: VerificationStatus) => {
+    const targetContribution = contributions.find((contribution) => contribution.id === id);
+    if (!targetContribution) return;
+
+    const defaultVerifier = targetContribution.verifiedBy || 'Treasurer';
+    const verifiedBy =
+      verificationStatus === 'Unverified'
+        ? ''
+        : window.prompt('Enter verifier name:', defaultVerifier)?.trim() || defaultVerifier;
+
+    if (verificationStatus !== 'Unverified' && !verifiedBy.trim()) {
+      alert('Verifier name is required.');
+      return;
+    }
+
+    const defaultNotes =
+      verificationStatus === 'Rejected'
+        ? targetContribution.verificationNotes || 'Payment needs review'
+        : targetContribution.verificationNotes || '';
+    const verificationNotes =
+      verificationStatus === 'Unverified'
+        ? ''
+        : window.prompt('Verification notes:', defaultNotes)?.trim() || defaultNotes;
+    const verifiedAt = verificationStatus === 'Unverified' ? '' : new Date().toISOString();
+    const updatedAt = new Date().toISOString();
+
+    try {
+      await updateDoc(doc(db, 'groups', CURRENT_GROUP_ID, 'contributions', id), {
+        verificationStatus,
+        verifiedBy,
+        verifiedAt,
+        verificationNotes,
+        updatedAt,
+      });
+
+      setContributions((previous) =>
+        previous.map((contribution) =>
+          contribution.id === id
+            ? {
+                ...contribution,
+                verificationStatus,
+                verifiedBy,
+                verifiedAt,
+                verificationNotes,
+                updatedAt,
+              }
+            : contribution
+        )
+      );
+    } catch (error) {
+      console.error('Failed to update payment verification:', error);
+      alert('Failed to update payment verification.');
     }
   };
 
@@ -917,17 +1008,21 @@ export default function DashboardPage() {
     const matchesStatus =
       contributionStatusFilter === 'All' || contribution.paymentStatus === contributionStatusFilter;
 
-    return matchesMember && matchesMonth && matchesStatus;
+    const matchesVerification =
+      contributionVerificationFilter === 'All' || normalizeVerificationStatus(contribution.verificationStatus) === contributionVerificationFilter;
+
+    return matchesMember && matchesMonth && matchesStatus && matchesVerification;
   });
 
   const clearContributionFilters = () => {
     setContributionMemberSearch('');
     setContributionMonthFilter('All');
     setContributionStatusFilter('All');
+    setContributionVerificationFilter('All');
   };
 
   const exportContributionsCsv = () => {
-    const headers = ['Member Name', 'Month', 'Welfare', 'Merry Go Round', 'Insurance', 'Bereaved Family', 'Expected Amount', 'Paid Amount', 'Balance', 'Payment Status', 'Payment Date'];
+    const headers = ['Member Name', 'Month', 'Welfare', 'Merry Go Round', 'Insurance', 'Bereaved Family', 'Expected Amount', 'Paid Amount', 'Balance', 'Payment Status', 'Payment Date', 'Verification Status', 'Verified By', 'Verified At', 'Verification Notes'];
     const exportRows = filteredContributions.length > 0 ? filteredContributions : contributions;
     const rows = exportRows.map((contribution) => [
       contribution.memberName,
@@ -941,6 +1036,10 @@ export default function DashboardPage() {
       getContributionBalance(contribution),
       contribution.paymentStatus,
       contribution.paymentDate,
+      normalizeVerificationStatus(contribution.verificationStatus),
+      contribution.verifiedBy || '',
+      contribution.verifiedAt || '',
+      contribution.verificationNotes || '',
     ]);
     const csv = [headers.join(','), ...rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(','))].join('\\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
@@ -952,9 +1051,223 @@ export default function DashboardPage() {
     URL.revokeObjectURL(url);
   };
 
+
+  const exportMemberStatementCsv = () => {
+    if (!statementMemberName) {
+      alert('Select a member before exporting a statement.');
+      return;
+    }
+
+    const headers = ['Member Name', 'Month', 'Welfare', 'Merry Go Round', 'Insurance', 'Bereaved Family', 'Expected Amount', 'Paid Amount', 'Balance', 'Payment Status', 'Payment Date', 'Verification Status', 'Verified By', 'Verified At', 'Verification Notes'];
+    const rows = statementContributions.map((contribution) => [
+      contribution.memberName,
+      contribution.month,
+      toMoneyNumber(contribution.welfare),
+      toMoneyNumber(contribution.merryGoRound),
+      toMoneyNumber(contribution.insurance),
+      toMoneyNumber(contribution.bereavedFamily),
+      getContributionTotal(contribution),
+      getContributionPaidAmount(contribution),
+      getContributionBalance(contribution),
+      contribution.paymentStatus,
+      contribution.paymentDate,
+      normalizeVerificationStatus(contribution.verificationStatus),
+      contribution.verifiedBy || '',
+      contribution.verifiedAt || '',
+      contribution.verificationNotes || '',
+    ]);
+
+    const totalsRow = [
+      statementMemberName,
+      'TOTAL',
+      '',
+      '',
+      '',
+      '',
+      statementExpectedTotal,
+      statementPaidTotal,
+      statementBalanceTotal,
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+    ];
+
+    const csv = [
+      headers.join(','),
+      ...rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(',')),
+      totalsRow.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(','),
+    ].join('\\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const safeMemberName = statementMemberName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'member';
+
+    link.href = url;
+    link.download = `jirani-member-statement-${safeMemberName}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const printDashboardReport = () => {
     window.print();
   };
+
+
+  const downloadCsvFile = (filename: string, headers: string[], rows: Array<Array<string | number | null | undefined>>) => {
+    const csv = [
+      headers.join(','),
+      ...rows.map((row) => row.map((value) => `"${String(value ?? '').replaceAll('"', '""')}"`).join(',')),
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportMembersCsv = () => {
+    downloadCsvFile(
+      'jirani-members-report.csv',
+      ['Member Name', 'Email', 'Contact', 'Insurance Paid', 'Status', 'Join Date'],
+      members.map((member) => [member.name, member.email, member.contact, member.insurancePaid, member.status, member.joinDate])
+    );
+  };
+
+  const exportArrearsCsv = () => {
+    const arrearsRows = contributions.filter((contribution) => getContributionBalance(contribution) > 0);
+
+    downloadCsvFile(
+      'jirani-arrears-report.csv',
+      ['Member Name', 'Month', 'Expected Amount', 'Paid Amount', 'Balance', 'Payment Status', 'Verification Status', 'Payment Date'],
+      arrearsRows.map((contribution) => [
+        contribution.memberName,
+        contribution.month,
+        getContributionTotal(contribution),
+        getContributionPaidAmount(contribution),
+        getContributionBalance(contribution),
+        contribution.paymentStatus,
+        normalizeVerificationStatus(contribution.verificationStatus),
+        contribution.paymentDate,
+      ])
+    );
+  };
+
+  const exportVerificationCsv = () => {
+    downloadCsvFile(
+      'jirani-payment-verification-report.csv',
+      ['Member Name', 'Month', 'Expected Amount', 'Paid Amount', 'Balance', 'Payment Status', 'Verification Status', 'Verified By', 'Verified At', 'Verification Notes'],
+      contributions.map((contribution) => [
+        contribution.memberName,
+        contribution.month,
+        getContributionTotal(contribution),
+        getContributionPaidAmount(contribution),
+        getContributionBalance(contribution),
+        contribution.paymentStatus,
+        normalizeVerificationStatus(contribution.verificationStatus),
+        contribution.verifiedBy || '',
+        contribution.verifiedAt || '',
+        contribution.verificationNotes || '',
+      ])
+    );
+  };
+
+  const exportMerryGoRoundCsv = () => {
+    downloadCsvFile(
+      'jirani-merry-go-round-report.csv',
+      ['Round Number', 'Recipient Name', 'Payout Date', 'Payout Amount', 'Status', 'Completed At'],
+      merryGoRound.map((round) => [round.roundNumber, round.recipientName, round.payoutDate, round.payoutAmount, round.status, round.completedAt || ''])
+    );
+  };
+
+  const exportInsurancePoliciesCsv = () => {
+    downloadCsvFile(
+      'jirani-insurance-provider-report.csv',
+      ['Provider Name', 'Policy Number', 'Month', 'Policy Start Date', 'Policy End Date', 'Premium Target', 'Provider Contribution', 'Last Respect Benefit', 'Status'],
+      insurancePolicies.map((policy) => [
+        policy.providerName,
+        policy.policyNumber,
+        policy.month,
+        policy.policyStartDate,
+        policy.policyEndDate,
+        policy.premiumTarget,
+        policy.providerContribution,
+        policy.lastRespectBenefit,
+        policy.status,
+      ])
+    );
+  };
+
+  const exportBereavedCasesCsv = () => {
+    downloadCsvFile(
+      'jirani-bereaved-family-report.csv',
+      ['Member Name', 'Family Contact', 'Month', 'Case Date', 'Target Amount', 'Collected Amount', 'Balance', 'Status', 'Notes'],
+      bereavedCases.map((caseItem) => [
+        caseItem.memberName,
+        caseItem.familyContact,
+        caseItem.month,
+        caseItem.caseDate,
+        caseItem.targetAmount,
+        caseItem.collectedAmount,
+        Math.max(caseItem.targetAmount - caseItem.collectedAmount, 0),
+        caseItem.status,
+        caseItem.notes,
+      ])
+    );
+  };
+
+  const exportDashboardSummaryCsv = () => {
+    downloadCsvFile(
+      'jirani-dashboard-summary-report.csv',
+      ['Metric', 'Value'],
+      [
+        ['Total Members', totalMembers],
+        ['Member Insurance Collected', totalCollected],
+        ['Pending Member Insurance Balance', totalBalancePending],
+        ['Monthly Expected Contributions', totalMonthlyContributions],
+        ['Monthly Paid Contributions', paidMonthlyContributions],
+        ['Monthly Arrears', totalMonthlyArrears],
+        ['Members With Arrears', membersWithArrears],
+        ['Verified Contributions', verifiedContributionCount],
+        ['Unverified Contributions', unverifiedContributionCount],
+        ['Rejected Contributions', rejectedContributionCount],
+        ['Insurance Provider Target', totalInsuranceTarget],
+        ['Last Respect Benefit', totalLastRespectBenefit],
+        ['Bereaved Target', totalBereavedTarget],
+        ['Bereaved Collected', totalBereavedCollected],
+      ]
+    );
+  };
+
+  const statementMemberOptions = Array.from(
+    new Set([
+      ...members.map((member) => member.name.trim()),
+      ...contributions.map((contribution) => contribution.memberName.trim()),
+    ].filter(Boolean))
+  ).sort((firstName, secondName) => firstName.localeCompare(secondName));
+
+  const statementContributions = statementMemberName
+    ? contributions
+        .filter((contribution) => contribution.memberName.trim().toLowerCase() === statementMemberName.trim().toLowerCase())
+        .sort((firstContribution, secondContribution) => {
+          const firstDate = firstContribution.paymentDate || firstContribution.createdAt || '';
+          const secondDate = secondContribution.paymentDate || secondContribution.createdAt || '';
+
+          return secondDate.localeCompare(firstDate);
+        })
+    : [];
+  const statementExpectedTotal = statementContributions.reduce((sum, contribution) => sum + getContributionTotal(contribution), 0);
+  const statementPaidTotal = statementContributions.reduce((sum, contribution) => sum + getContributionPaidAmount(contribution), 0);
+  const statementBalanceTotal = statementContributions.reduce((sum, contribution) => sum + getContributionBalance(contribution), 0);
+  const statementVerifiedCount = statementContributions.filter((contribution) => normalizeVerificationStatus(contribution.verificationStatus) === 'Verified').length;
+  const statementRejectedCount = statementContributions.filter((contribution) => normalizeVerificationStatus(contribution.verificationStatus) === 'Rejected').length;
+  const statementUnverifiedCount = statementContributions.filter((contribution) => normalizeVerificationStatus(contribution.verificationStatus) === 'Unverified').length;
 
   const totalMembers = members.length;
   const totalCollected = members.filter((member) => member.status === 'Paid').reduce((sum, member) => sum + member.insurancePaid, 0);
@@ -966,6 +1279,12 @@ export default function DashboardPage() {
   const filteredMonthlyContributionsTotal = filteredContributions.reduce((sum, contribution) => sum + getContributionTotal(contribution), 0);
   const filteredPaidMonthlyContributions = filteredContributions.reduce((sum, contribution) => sum + getContributionPaidAmount(contribution), 0);
   const filteredPendingMonthlyContributions = filteredContributions.reduce((sum, contribution) => sum + getContributionBalance(contribution), 0);
+  const verifiedContributionCount = contributions.filter((contribution) => normalizeVerificationStatus(contribution.verificationStatus) === 'Verified').length;
+  const rejectedContributionCount = contributions.filter((contribution) => normalizeVerificationStatus(contribution.verificationStatus) === 'Rejected').length;
+  const unverifiedContributionCount = contributions.filter((contribution) => normalizeVerificationStatus(contribution.verificationStatus) === 'Unverified').length;
+  const filteredVerifiedContributionCount = filteredContributions.filter((contribution) => normalizeVerificationStatus(contribution.verificationStatus) === 'Verified').length;
+  const filteredRejectedContributionCount = filteredContributions.filter((contribution) => normalizeVerificationStatus(contribution.verificationStatus) === 'Rejected').length;
+  const filteredUnverifiedContributionCount = filteredContributions.filter((contribution) => normalizeVerificationStatus(contribution.verificationStatus) === 'Unverified').length;
   const newContributionTotal =
     toMoneyNumber(newContribution.welfare) +
     toMoneyNumber(newContribution.merryGoRound) +
@@ -1017,14 +1336,85 @@ export default function DashboardPage() {
         <Module
           title="Stats"
           content={
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-7">
               <StatCard title="Total Members" value={totalMembers} detail="From database records" />
               <StatCard title="Member Insurance" value={formatCurrency(totalCollected)} detail="Completed member insurance" />
               <StatCard title="Pending Balance" value={formatCurrency(totalBalancePending)} detail="Still pending collection" />
               <StatCard title="Monthly Contributions" value={formatCurrency(totalMonthlyContributions)} detail={`Paid: ${formatCurrency(paidMonthlyContributions)}`} />
               <StatCard title="Monthly Arrears" value={formatCurrency(totalMonthlyArrears)} detail={`${membersWithArrears} member(s) with balance`} />
+              <StatCard title="Payment Verification" value={verifiedContributionCount} detail={`${unverifiedContributionCount} unverified • ${rejectedContributionCount} rejected`} />
               <StatCard title="Insurance Target" value={formatCurrency(totalInsuranceTarget)} detail={`Benefit: ${formatCurrency(totalLastRespectBenefit)}`} />
               <StatCard title="Bereaved Support" value={formatCurrency(totalBereavedCollected)} detail={`Target: ${formatCurrency(totalBereavedTarget)}`} />
+            </div>
+          }
+        />
+
+        <Module
+          title="Reports & Exports"
+          content={
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Expected Collection</p>
+                  <p className="mt-2 text-2xl font-black text-emerald-300">{formatCurrency(totalMonthlyContributions)}</p>
+                  <p className="mt-1 text-xs text-slate-400">From all monthly contribution rows</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Paid Collection</p>
+                  <p className="mt-2 text-2xl font-black text-cyan-300">{formatCurrency(paidMonthlyContributions)}</p>
+                  <p className="mt-1 text-xs text-slate-400">Actual paid amount recorded</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Arrears Exposure</p>
+                  <p className="mt-2 text-2xl font-black text-amber-300">{formatCurrency(totalMonthlyArrears)}</p>
+                  <p className="mt-1 text-xs text-slate-400">{membersWithArrears} member(s) have outstanding balances</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Verification Review</p>
+                  <p className="mt-2 text-2xl font-black text-rose-300">{unverifiedContributionCount + rejectedContributionCount}</p>
+                  <p className="mt-1 text-xs text-slate-400">Unverified plus rejected payment rows</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <button type="button" onClick={exportDashboardSummaryCsv} className="rounded-2xl border border-cyan-300/20 bg-cyan-400/20 px-4 py-3 text-left text-sm font-semibold text-cyan-50 transition hover:bg-cyan-400/30">
+                  Dashboard Summary CSV
+                  <span className="mt-1 block text-xs font-normal text-cyan-100/75">Overall financial summary</span>
+                </button>
+                <button type="button" onClick={exportContributionsCsv} className="rounded-2xl border border-emerald-300/20 bg-emerald-400/20 px-4 py-3 text-left text-sm font-semibold text-emerald-50 transition hover:bg-emerald-400/30">
+                  Contributions CSV
+                  <span className="mt-1 block text-xs font-normal text-emerald-100/75">Uses current contribution filters</span>
+                </button>
+                <button type="button" onClick={exportArrearsCsv} className="rounded-2xl border border-amber-300/20 bg-amber-400/20 px-4 py-3 text-left text-sm font-semibold text-amber-50 transition hover:bg-amber-400/30">
+                  Arrears CSV
+                  <span className="mt-1 block text-xs font-normal text-amber-100/75">Only members with outstanding balance</span>
+                </button>
+                <button type="button" onClick={exportVerificationCsv} className="rounded-2xl border border-fuchsia-300/20 bg-fuchsia-400/20 px-4 py-3 text-left text-sm font-semibold text-fuchsia-50 transition hover:bg-fuchsia-400/30">
+                  Verification CSV
+                  <span className="mt-1 block text-xs font-normal text-fuchsia-100/75">Verified, unverified, and rejected rows</span>
+                </button>
+                <button type="button" onClick={exportMembersCsv} className="rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-3 text-left text-sm font-semibold text-slate-100 transition hover:bg-white/[0.13]">
+                  Members CSV
+                  <span className="mt-1 block text-xs font-normal text-slate-300">Member contacts and insurance status</span>
+                </button>
+                <button type="button" onClick={exportMerryGoRoundCsv} className="rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-3 text-left text-sm font-semibold text-slate-100 transition hover:bg-white/[0.13]">
+                  Merry-Go-Round CSV
+                  <span className="mt-1 block text-xs font-normal text-slate-300">Round schedule and payouts</span>
+                </button>
+                <button type="button" onClick={exportInsurancePoliciesCsv} className="rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-3 text-left text-sm font-semibold text-slate-100 transition hover:bg-white/[0.13]">
+                  Insurance CSV
+                  <span className="mt-1 block text-xs font-normal text-slate-300">Provider policies and benefits</span>
+                </button>
+                <button type="button" onClick={exportBereavedCasesCsv} className="rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-3 text-left text-sm font-semibold text-slate-100 transition hover:bg-white/[0.13]">
+                  Bereaved Cases CSV
+                  <span className="mt-1 block text-xs font-normal text-slate-300">Family support targets and collections</span>
+                </button>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4 text-sm text-slate-300">
+                <p className="font-semibold text-white">Report note</p>
+                <p className="mt-1">The Contributions CSV respects the active Monthly Contributors filters. Other exports use their full module records.</p>
+              </div>
             </div>
           }
         />
@@ -1034,7 +1424,7 @@ export default function DashboardPage() {
             title="Monthly Contributors"
             content={
               <div className="space-y-4">
-                <div className="grid grid-cols-1 gap-3 rounded-[1.5rem] border border-white/10 bg-white/[0.05] p-4 md:grid-cols-4">
+                <div className="grid grid-cols-1 gap-3 rounded-[1.5rem] border border-white/10 bg-white/[0.05] p-4 md:grid-cols-5">
                   <div>
                     <label className="mb-1 block text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Search Member</label>
                     <input
@@ -1075,6 +1465,20 @@ export default function DashboardPage() {
                     </select>
                   </div>
 
+                  <div>
+                    <label className="mb-1 block text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Verification</label>
+                    <select
+                      value={contributionVerificationFilter}
+                      onChange={(event) => setContributionVerificationFilter(event.target.value as 'All' | VerificationStatus)}
+                      className="w-full rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white outline-none focus:border-cyan-300/60"
+                    >
+                      <option value="All">All verification</option>
+                      <option value="Unverified">Unverified</option>
+                      <option value="Verified">Verified</option>
+                      <option value="Rejected">Rejected</option>
+                    </select>
+                  </div>
+
                   <div className="flex items-end">
                     <button
                       type="button"
@@ -1086,7 +1490,7 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-4 xl:grid-cols-7">
                   <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3">
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Rows Shown</p>
                     <p className="mt-1 text-xl font-black text-white">{filteredContributions.length}</p>
@@ -1102,6 +1506,18 @@ export default function DashboardPage() {
                   <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3">
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Filtered Arrears</p>
                     <p className="mt-1 text-xl font-black text-amber-300">{formatCurrency(filteredPendingMonthlyContributions)}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Verified</p>
+                    <p className="mt-1 text-xl font-black text-emerald-300">{filteredVerifiedContributionCount}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Unverified</p>
+                    <p className="mt-1 text-xl font-black text-slate-200">{filteredUnverifiedContributionCount}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Rejected</p>
+                    <p className="mt-1 text-xl font-black text-rose-300">{filteredRejectedContributionCount}</p>
                   </div>
                 </div>
 
@@ -1120,6 +1536,9 @@ export default function DashboardPage() {
                       <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Paid</th>
                       <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Balance</th>
                       <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Status</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Verification</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Verifier</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Notes</th>
                       <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Actions</th>
                     </tr>
                   </thead>
@@ -1135,6 +1554,7 @@ export default function DashboardPage() {
                         ? editingTotal
                         : Math.min(toMoneyNumber(contributionEditForm.paidAmount), editingTotal);
                       const editingBalance = Math.max(editingTotal - editingPaidAmount, 0);
+                      const verificationStatus = normalizeVerificationStatus(contribution.verificationStatus);
 
                       return (
                         <tr key={contribution.id} className="transition-colors hover:bg-white/[0.04]">
@@ -1270,6 +1690,28 @@ export default function DashboardPage() {
                               </span>
                             )}
                           </td>
+                          <td className="px-4 py-3">
+                            <span
+                              className={`rounded-full border px-3 py-1 text-xs font-bold ${
+                                verificationStatus === 'Verified'
+                                  ? 'border-emerald-300/20 bg-emerald-400/10 text-emerald-300'
+                                  : verificationStatus === 'Rejected'
+                                    ? 'border-rose-300/20 bg-rose-400/10 text-rose-300'
+                                    : 'border-slate-300/20 bg-slate-400/10 text-slate-300'
+                              }`}
+                            >
+                              {verificationStatus}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-xs text-slate-300">
+                            {contribution.verifiedBy || '—'}
+                            {contribution.verifiedAt ? (
+                              <span className="block text-[11px] text-slate-500">{new Date(contribution.verifiedAt).toLocaleDateString('en-KE')}</span>
+                            ) : null}
+                          </td>
+                          <td className="max-w-[14rem] px-4 py-3 text-xs text-slate-400">
+                            <span className="line-clamp-2">{contribution.verificationNotes || '—'}</span>
+                          </td>
                           <td className="px-4 py-3 text-right">
                             {isEditingContribution ? (
                               <div className="flex justify-end gap-3">
@@ -1281,7 +1723,7 @@ export default function DashboardPage() {
                                 </button>
                               </div>
                             ) : (
-                              <div className="flex justify-end gap-3">
+                              <div className="flex flex-wrap justify-end gap-3">
                                 <button onClick={() => startEditingContribution(contribution)} className="text-xs font-semibold text-cyan-400 underline hover:text-cyan-300" type="button">
                                   Edit
                                 </button>
@@ -1292,6 +1734,17 @@ export default function DashboardPage() {
                                 >
                                   {contribution.paymentStatus === 'Paid' ? 'Mark Pending' : 'Mark Paid'}
                                 </button>
+                                <button onClick={() => updateContributionVerification(contribution.id, 'Verified')} className="text-xs font-semibold text-emerald-300 underline hover:text-emerald-200" type="button">
+                                  Verify
+                                </button>
+                                <button onClick={() => updateContributionVerification(contribution.id, 'Rejected')} className="text-xs font-semibold text-amber-300 underline hover:text-amber-200" type="button">
+                                  Reject
+                                </button>
+                                {verificationStatus !== 'Unverified' ? (
+                                  <button onClick={() => updateContributionVerification(contribution.id, 'Unverified')} className="text-xs font-semibold text-slate-300 underline hover:text-white" type="button">
+                                    Reset
+                                  </button>
+                                ) : null}
                                 <button onClick={() => handleDeleteContribution(contribution.id)} className="text-xs font-semibold text-rose-400 underline hover:text-rose-300" type="button">
                                   Delete
                                 </button>
@@ -1302,7 +1755,7 @@ export default function DashboardPage() {
                       );
                     })}
                     {filteredContributions.length === 0 && (
-                      <tr><td colSpan={12} className="px-4 py-6 text-center text-sm text-slate-400">No monthly contributors match the current filters.</td></tr>
+                      <tr><td colSpan={15} className="px-4 py-6 text-center text-sm text-slate-400">No monthly contributors match the current filters.</td></tr>
                     )}
                   </tbody>
                   </table>
@@ -1310,6 +1763,133 @@ export default function DashboardPage() {
               </div>
             }
           />
+
+          <div className="lg:col-span-2">
+            <Module
+              title="Member Statement"
+              content={
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 gap-3 rounded-[1.5rem] border border-white/10 bg-white/[0.05] p-4 md:grid-cols-[1fr_auto] md:items-end">
+                    <div>
+                      <label className="mb-1 block text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Select Member</label>
+                      <select
+                        value={statementMemberName}
+                        onChange={(event) => setStatementMemberName(event.target.value)}
+                        className="w-full rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white outline-none focus:border-cyan-300/60"
+                      >
+                        <option value="">Choose member...</option>
+                        {statementMemberOptions.map((memberName) => (
+                          <option key={memberName} value={memberName}>
+                            {memberName}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={exportMemberStatementCsv}
+                      disabled={!statementMemberName || statementContributions.length === 0}
+                      className="rounded-2xl border border-emerald-300/20 bg-emerald-400/20 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/30 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Export Statement CSV
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-6">
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Rows</p>
+                      <p className="mt-1 text-xl font-black text-white">{statementContributions.length}</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Expected</p>
+                      <p className="mt-1 text-xl font-black text-emerald-300">{formatCurrency(statementExpectedTotal)}</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Paid</p>
+                      <p className="mt-1 text-xl font-black text-cyan-300">{formatCurrency(statementPaidTotal)}</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Arrears</p>
+                      <p className="mt-1 text-xl font-black text-amber-300">{formatCurrency(statementBalanceTotal)}</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Verified</p>
+                      <p className="mt-1 text-xl font-black text-emerald-300">{statementVerifiedCount}</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Review</p>
+                      <p className="mt-1 text-xl font-black text-slate-200">{statementUnverifiedCount + statementRejectedCount}</p>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto rounded-[1.5rem] border border-white/10">
+                    <table className="min-w-full divide-y divide-white/10 overflow-hidden">
+                      <thead className="bg-white/[0.05]">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Month</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Payment Date</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Expected</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Paid</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Arrears</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Payment</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Verification</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/10/50">
+                        {statementContributions.map((contribution) => {
+                          const verificationStatus = normalizeVerificationStatus(contribution.verificationStatus);
+
+                          return (
+                            <tr key={contribution.id} className="transition hover:bg-white/[0.04]">
+                              <td className="px-4 py-3 text-sm font-semibold text-white">{contribution.month}</td>
+                              <td className="px-4 py-3 text-sm text-slate-300">{formatCalendarDate(contribution.paymentDate)}</td>
+                              <td className="px-4 py-3 text-sm font-semibold text-emerald-300">{formatCurrency(getContributionTotal(contribution))}</td>
+                              <td className="px-4 py-3 text-sm font-semibold text-cyan-300">{formatCurrency(getContributionPaidAmount(contribution))}</td>
+                              <td className="px-4 py-3 text-sm font-semibold text-amber-300">{formatCurrency(getContributionBalance(contribution))}</td>
+                              <td className="px-4 py-3">
+                                <span className={`rounded-full border px-3 py-1 text-xs font-bold ${contribution.paymentStatus === 'Paid' ? 'border-emerald-300/20 bg-emerald-400/10 text-emerald-300' : 'border-amber-300/20 bg-amber-400/10 text-amber-300'}`}>
+                                  {contribution.paymentStatus}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span
+                                  className={`rounded-full border px-3 py-1 text-xs font-bold ${
+                                    verificationStatus === 'Verified'
+                                      ? 'border-emerald-300/20 bg-emerald-400/10 text-emerald-300'
+                                      : verificationStatus === 'Rejected'
+                                        ? 'border-rose-300/20 bg-rose-400/10 text-rose-300'
+                                        : 'border-slate-300/20 bg-slate-400/10 text-slate-300'
+                                  }`}
+                                >
+                                  {verificationStatus}
+                                </span>
+                                {contribution.verifiedBy ? <span className="mt-1 block text-[11px] text-slate-500">By {contribution.verifiedBy}</span> : null}
+                              </td>
+                              <td className="max-w-[16rem] px-4 py-3 text-xs text-slate-400">
+                                <span className="line-clamp-2">{contribution.verificationNotes || '—'}</span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {statementMemberName && statementContributions.length === 0 ? (
+                          <tr>
+                            <td colSpan={8} className="px-4 py-6 text-center text-sm text-slate-400">No statement records found for this member.</td>
+                          </tr>
+                        ) : null}
+                        {!statementMemberName ? (
+                          <tr>
+                            <td colSpan={8} className="px-4 py-6 text-center text-sm text-slate-400">Select a member to view their statement.</td>
+                          </tr>
+                        ) : null}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              }
+            />
+          </div>
 
           <Module
             title="Merry-Go-Round Schedule"
@@ -1322,6 +1902,9 @@ export default function DashboardPage() {
                       <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Recipient</th>
                       <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Payout Date</th>
                       <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Status</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Verification</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Verifier</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Notes</th>
                       <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Actions</th>
                     </tr>
                   </thead>
@@ -1415,6 +1998,9 @@ export default function DashboardPage() {
                       <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Case Date</th>
                       <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Collected</th>
                       <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Status</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Verification</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Verifier</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Notes</th>
                       <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Actions</th>
                     </tr>
                   </thead>
