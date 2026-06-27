@@ -21,12 +21,149 @@ const googleProvider = new GoogleAuthProvider();
 const CURRENT_GROUP_ID = 'demo_group_01';
 const ADMIN_EMAILS = ['jiranimwema202420@gmail.com'];
 
+const tableScrollbarCss = `
+  .visible-horizontal-scrollbar {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto !important;
+    overflow-y: hidden;
+    scrollbar-width: auto;
+    scrollbar-color: rgba(34, 211, 238, 0.95) rgba(15, 23, 42, 0.85);
+    scrollbar-gutter: stable both-edges;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x;
+  }
+
+  .visible-horizontal-scrollbar table {
+    width: max-content;
+    min-width: max-content;
+  }
+
+  .visible-horizontal-scrollbar::-webkit-scrollbar {
+    height: 14px;
+  }
+
+  .visible-horizontal-scrollbar::-webkit-scrollbar-track {
+    background: rgba(15, 23, 42, 0.9);
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  .visible-horizontal-scrollbar::-webkit-scrollbar-thumb {
+    background: linear-gradient(90deg, rgba(34, 211, 238, 0.95), rgba(99, 102, 241, 0.95));
+    border-radius: 999px;
+    border: 2px solid rgba(15, 23, 42, 0.9);
+  }
+
+  .visible-horizontal-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(90deg, rgba(103, 232, 249, 1), rgba(129, 140, 248, 1));
+  }
+
+  .table-scroll-hint {
+    pointer-events: none;
+    position: sticky;
+    left: 0;
+    display: inline-flex;
+    margin-bottom: 0.5rem;
+    border-radius: 999px;
+    border: 1px solid rgba(34, 211, 238, 0.24);
+    background: rgba(8, 47, 73, 0.7);
+    padding: 0.25rem 0.65rem;
+    color: rgb(207, 250, 254);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    backdrop-filter: blur(14px);
+  }
+
+
+  .premium-surface {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .premium-surface::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    background:
+      linear-gradient(135deg, rgba(255,255,255,0.16), rgba(255,255,255,0.035) 34%, rgba(34,211,238,0.08)),
+      radial-gradient(circle at 15% 0%, rgba(34,211,238,0.16), transparent 32%),
+      radial-gradient(circle at 90% 10%, rgba(99,102,241,0.16), transparent 34%);
+    opacity: 0.82;
+    z-index: -1;
+  }
+
+  .soft-grid-bg {
+    background-image:
+      linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
+    background-size: 42px 42px;
+    mask-image: linear-gradient(to bottom, black 0%, transparent 80%);
+  }
+
+  .touch-card {
+    transform: translateZ(0);
+  }
+
+  .touch-card:active {
+    transform: scale(0.99);
+  }
+
+  .metric-glow {
+    box-shadow:
+      0 22px 70px rgba(0,0,0,0.28),
+      inset 0 1px 0 rgba(255,255,255,0.1);
+  }
+
+  .subtle-divider {
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent);
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 3px solid rgba(34, 211, 238, 0.6);
+    outline-offset: 3px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+`;
+
 type PaymentStatus = 'Paid' | 'Pending';
 type UserRole = 'Guest' | 'Member' | 'Chairperson' | 'Treasurer' | 'Admin';
 type ProtectedRole = Exclude<UserRole, 'Guest'>;
 type ManagedUserRole = Exclude<UserRole, 'Guest'>;
 type MembershipStatus = 'active' | 'inactive' | 'disabled';
 type AccessRequestStatus = 'Pending' | 'Approved' | 'Rejected';
+type ToastTone = 'success' | 'error' | 'warning' | 'info';
 type VerificationStatus = 'Unverified' | 'Verified' | 'Rejected';
 type RoundStatus = 'Completed' | 'Current' | 'Upcoming';
 type InsuranceStatus = 'Active' | 'Pending' | 'Expired';
@@ -335,22 +472,36 @@ const emptyContributionEditForm = (): ContributionEditForm => ({
 });
 
 const StatCard: React.FC<StatCardProps> = ({ title, value, detail }) => (
-  <div className="group relative overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.08] p-5 shadow-2xl shadow-black/20 ring-1 ring-white/5 backdrop-blur-2xl transition duration-300 hover:-translate-y-0.5 hover:border-cyan-300/30 hover:bg-white/[0.12]">
-    <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/40 to-transparent" />
-    <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-cyan-400/10 blur-2xl transition group-hover:bg-cyan-300/20" />
-    <p className="relative text-sm font-semibold text-slate-300">{title}</p>
-    <p className="relative mt-2 text-2xl font-black tracking-tight text-white">{value}</p>
-    <p className="relative mt-2 text-xs text-slate-300">{detail}</p>
+  <div className="premium-surface touch-card metric-glow group relative min-h-[136px] overflow-hidden rounded-[1.85rem] border border-white/10 bg-slate-950/35 p-4 ring-1 ring-white/5 backdrop-blur-2xl transition duration-300 hover:-translate-y-1 hover:border-cyan-300/35 hover:bg-white/[0.09] sm:p-5">
+    <div className="absolute inset-x-5 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/45 to-transparent" />
+    <div className="absolute -right-12 -top-12 h-32 w-32 rounded-full bg-cyan-300/10 blur-2xl transition group-hover:bg-cyan-300/20" />
+    <div className="absolute -bottom-16 left-4 h-28 w-28 rounded-full bg-indigo-400/10 blur-2xl" />
+    <div className="relative flex h-full flex-col justify-between">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-300 sm:text-xs">{title}</p>
+        <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-lg shadow-cyan-300/40" />
+      </div>
+      <p className="mt-4 break-words text-2xl font-black tracking-tight text-white sm:text-3xl">{value}</p>
+      <p className="mt-2 text-xs leading-5 text-slate-300">{detail}</p>
+    </div>
   </div>
 );
 
 const Module: React.FC<ModuleProps> = ({ title, content }) => (
-  <section className="mb-8">
-    <div className="mb-4 flex items-center gap-3">
-      <div className="h-2.5 w-2.5 rounded-full bg-cyan-300 shadow-lg shadow-cyan-300/40" />
-      <h2 className="text-xl font-semibold tracking-tight text-white">{title}</h2>
+  <section id={title.toLowerCase().replace(/[^a-z0-9]+/g, '-')} className="mb-6 min-w-0 scroll-mt-28 sm:mb-8">
+    <div className="mb-3 flex flex-wrap items-end justify-between gap-3 px-1 sm:mb-4">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-2xl border border-cyan-300/20 bg-cyan-400/10 shadow-lg shadow-cyan-950/20">
+          <div className="h-2.5 w-2.5 rounded-full bg-cyan-300 shadow-lg shadow-cyan-300/40" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-cyan-300/80">Workspace</p>
+          <h2 className="truncate text-lg font-black tracking-tight text-white sm:text-xl">{title}</h2>
+        </div>
+      </div>
+      <div className="hidden h-px flex-1 subtle-divider sm:block" />
     </div>
-    <div className="rounded-[2rem] border border-white/10 bg-white/[0.07] p-4 shadow-2xl shadow-black/25 ring-1 ring-white/5 backdrop-blur-2xl">{content}</div>
+    <div className="premium-surface min-w-0 max-w-full overflow-hidden rounded-[1.85rem] border border-white/10 bg-slate-950/35 p-3 shadow-2xl shadow-black/25 ring-1 ring-white/5 backdrop-blur-2xl sm:p-5 lg:p-6">{content}</div>
   </section>
 );
 
@@ -374,6 +525,7 @@ export default function DashboardPage() {
   const [authLoading, setAuthLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>('Guest');
+  const [toast, setToast] = useState<{ id: number; message: string; tone: ToastTone } | null>(null);
 
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Member>>({});
@@ -478,14 +630,55 @@ export default function DashboardPage() {
   const canManageFinance = hasRoleAtLeast('Treasurer');
   const canViewReports = hasRoleAtLeast('Treasurer');
 
+  const notify = (message: string, tone: ToastTone = 'info') => {
+    const id = Date.now();
+    setToast({ id, message, tone });
+
+    window.setTimeout(() => {
+      setToast((currentToast) => (currentToast?.id === id ? null : currentToast));
+    }, 4200);
+  };
+
+  const ToastBanner = () =>
+    toast ? (
+      <div className="fixed inset-x-3 top-3 z-[80] mx-auto max-w-xl sm:top-5" role="status" aria-live="polite">
+        <div
+          className={`flex items-start justify-between gap-3 rounded-3xl border px-4 py-3 text-sm shadow-2xl shadow-black/30 backdrop-blur-2xl ${
+            toast.tone === 'success'
+              ? 'border-emerald-300/30 bg-emerald-400/15 text-emerald-50'
+              : toast.tone === 'error'
+                ? 'border-rose-300/30 bg-rose-400/15 text-rose-50'
+                : toast.tone === 'warning'
+                  ? 'border-amber-300/30 bg-amber-400/15 text-amber-50'
+                  : 'border-cyan-300/30 bg-cyan-400/15 text-cyan-50'
+          }`}
+        >
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.18em]">
+              {toast.tone === 'success' ? 'Success' : toast.tone === 'error' ? 'Action failed' : toast.tone === 'warning' ? 'Check this' : 'Notice'}
+            </p>
+            <p className="mt-1 leading-5">{toast.message}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            className="shrink-0 rounded-full border border-white/15 bg-white/10 px-2 py-1 text-xs font-black text-white/90"
+            aria-label="Dismiss notification"
+          >
+            ×
+          </button>
+        </div>
+      </div>
+    ) : null;
+
   const requireRole = (minimumRole: ProtectedRole, action: string) => {
     if (!currentUser) {
-      alert(`Please sign in before you ${action}.`);
+      notify(`Please sign in before you ${action}.`, 'warning');
       return false;
     }
 
     if (!hasRoleAtLeast(minimumRole)) {
-      alert(`You need ${minimumRole} access or higher to ${action}. Current role: ${currentUserRole}.`);
+      notify(`You need ${minimumRole} access or higher to ${action}. Current role: ${currentUserRole}.`, 'warning');
       return false;
     }
 
@@ -497,7 +690,7 @@ export default function DashboardPage() {
       await signInWithPopup(auth, googleProvider);
     } catch (error) {
       console.error('Failed to sign in:', error);
-      alert('Failed to sign in with Google.');
+      notify('Failed to sign in with Google.', 'error');
     }
   };
 
@@ -506,7 +699,7 @@ export default function DashboardPage() {
       await signOut(auth);
     } catch (error) {
       console.error('Failed to sign out:', error);
-      alert('Failed to sign out.');
+      notify('Failed to sign out.', 'error');
     }
   };
 
@@ -819,7 +1012,7 @@ export default function DashboardPage() {
     const displayName = newRoleMember.displayName.trim();
 
     if (!uid || !email) {
-      alert('Enter the Firebase Auth UID and email for the user.');
+      notify('Enter the Firebase Auth UID and email for the user.', 'warning');
       return;
     }
 
@@ -852,7 +1045,7 @@ export default function DashboardPage() {
       setNewRoleMember({ uid: '', email: '', displayName: '', role: 'Member', status: 'active' });
     } catch (error) {
       console.error('Failed to save role membership:', error);
-      alert('Failed to save role membership. Confirm you are signed in as Admin.');
+      notify('Failed to save role membership. Confirm you are signed in as Admin.', 'error');
     } finally {
       setSubmittingRoleMember(false);
     }
@@ -875,7 +1068,7 @@ export default function DashboardPage() {
     event.preventDefault();
 
     if (!currentUser) {
-      alert('Please sign in before requesting access.');
+      notify('Please sign in before requesting access.', 'warning');
       return;
     }
 
@@ -884,7 +1077,7 @@ export default function DashboardPage() {
     const reason = accessRequestForm.reason.trim();
 
     if (!displayName || !phone || !reason) {
-      alert('Enter your name, phone number, and reason for requesting access.');
+      notify('Enter your name, phone number, and reason for requesting access.', 'warning');
       return;
     }
 
@@ -907,10 +1100,10 @@ export default function DashboardPage() {
     try {
       await setDoc(doc(db, 'groups', CURRENT_GROUP_ID, 'accessRequests', currentUser.uid), requestData, { merge: true });
       setAccessRequests([{ id: currentUser.uid, ...requestData }]);
-      alert('Your access request has been sent to the Admin.');
+      notify('Your access request has been sent to the Admin.', 'success');
     } catch (error) {
       console.error('Failed to submit access request:', error);
-      alert('Failed to submit access request. Confirm Firestore Step 12 rules are deployed.');
+      notify('Failed to submit access request. Confirm Firestore Step 12 rules are deployed.', 'error');
     } finally {
       setSubmittingAccessRequest(false);
     }
@@ -962,10 +1155,10 @@ export default function DashboardPage() {
         targetName: requestItem.email || requestItem.displayName,
         details: `${requestItem.displayName || requestItem.email} approved as ${role}.`,
       });
-      alert(`${requestItem.displayName || requestItem.email} approved as ${role}.`);
+      notify(`${requestItem.displayName || requestItem.email} approved as ${role}.`, 'success');
     } catch (error) {
       console.error('Failed to approve access request:', error);
-      alert('Failed to approve access request. Confirm Step 12 rules are deployed.');
+      notify('Failed to approve access request. Confirm Step 12 rules are deployed.', 'error');
     } finally {
       setProcessingAccessRequestId(null);
     }
@@ -1003,7 +1196,7 @@ export default function DashboardPage() {
       });
     } catch (error) {
       console.error('Failed to reject access request:', error);
-      alert('Failed to reject access request.');
+      notify('Failed to reject access request.', 'error');
     } finally {
       setProcessingAccessRequestId(null);
     }
@@ -1031,7 +1224,7 @@ export default function DashboardPage() {
       });
     } catch (error) {
       console.error('Failed to update user role:', error);
-      alert('Failed to update user role.');
+      notify('Failed to update user role.', 'error');
     }
   };
 
@@ -1057,7 +1250,7 @@ export default function DashboardPage() {
       });
     } catch (error) {
       console.error('Failed to update user status:', error);
-      alert('Failed to update user status.');
+      notify('Failed to update user status.', 'error');
     }
   };
 
@@ -1080,7 +1273,7 @@ export default function DashboardPage() {
       });
     } catch (error) {
       console.error('Failed to remove user role:', error);
-      alert('Failed to remove user role.');
+      notify('Failed to remove user role.', 'error');
     }
   };
 
@@ -1115,7 +1308,7 @@ export default function DashboardPage() {
       setNewMember({ name: '', email: '', contact: '', insurancePaid: '', status: 'Pending', joinDate: todayIso() });
     } catch (error) {
       console.error('Error creating member record:', error);
-      alert('Failed to create member.');
+      notify('Failed to create member.', 'error');
     } finally {
       setSubmittingMember(false);
     }
@@ -1137,7 +1330,7 @@ export default function DashboardPage() {
     const paymentStatus: PaymentStatus = balance <= 0 && total > 0 ? 'Paid' : 'Pending';
 
     if (total <= 0) {
-      alert('Enter at least one contribution amount.');
+      notify('Enter at least one contribution amount.', 'warning');
       return;
     }
 
@@ -1188,7 +1381,7 @@ export default function DashboardPage() {
       });
     } catch (error) {
       console.error('Error tracking contribution:', error);
-      alert('Failed to log contribution.');
+      notify('Failed to log contribution.', 'error');
     } finally {
       setSubmittingContribution(false);
     }
@@ -1200,12 +1393,12 @@ export default function DashboardPage() {
 
     const month = generationMonth.trim();
     if (!month) {
-      alert('Enter the month to generate.');
+      notify('Enter the month to generate.', 'warning');
       return;
     }
 
     if (members.length === 0) {
-      alert('Add members before generating monthly contribution rows.');
+      notify('Add members before generating monthly contribution rows.');
       return;
     }
 
@@ -1219,7 +1412,7 @@ export default function DashboardPage() {
     });
 
     if (membersWithoutRows.length === 0) {
-      alert(`All members already have contribution rows for ${month}.`);
+      notify(`All members already have contribution rows for ${month}.`, 'warning');
       return;
     }
 
@@ -1279,10 +1472,10 @@ export default function DashboardPage() {
       });
       setContributionMonthFilter(month);
       setContributionStatusFilter('All');
-      alert(`Generated ${createdRows.length} monthly contribution row(s) for ${month}.`);
+      notify(`Generated ${createdRows.length} monthly contribution row(s) for ${month}.`, 'success');
     } catch (error) {
       console.error('Failed to generate monthly contribution rows:', error);
-      alert('Failed to generate monthly contribution rows.');
+      notify('Failed to generate monthly contribution rows.', 'error');
     } finally {
       setGeneratingMonthlyRows(false);
     }
@@ -1318,7 +1511,7 @@ export default function DashboardPage() {
       setNewRound({ roundNumber: '', payoutDate: todayIso(), recipientName: '', payoutAmount: '', status: 'Upcoming' });
     } catch (error) {
       console.error('Error building schedule timeline:', error);
-      alert('Failed to schedule round.');
+      notify('Failed to schedule round.', 'error');
     } finally {
       setSubmittingRound(false);
     }
@@ -1368,7 +1561,7 @@ export default function DashboardPage() {
       });
     } catch (error) {
       console.error('Error creating insurance policy:', error);
-      alert('Failed to create insurance policy.');
+      notify('Failed to create insurance policy.', 'error');
     } finally {
       setSubmittingInsurance(false);
     }
@@ -1419,7 +1612,7 @@ export default function DashboardPage() {
       });
     } catch (error) {
       console.error('Error creating bereaved case:', error);
-      alert('Failed to create bereaved family case.');
+      notify('Failed to create bereaved family case.', 'error');
     } finally {
       setSubmittingBereavedCase(false);
     }
@@ -1465,7 +1658,7 @@ export default function DashboardPage() {
       setEditingMemberId(null);
     } catch (error) {
       console.error('Failed to commit member updates:', error);
-      alert('Failed to update member.');
+      notify('Failed to update member.', 'error');
     }
   };
 
@@ -1486,7 +1679,7 @@ export default function DashboardPage() {
       });
     } catch (error) {
       console.error('Failed to delete member:', error);
-      alert('Failed to delete member.');
+      notify('Failed to delete member.', 'error');
     }
   };
 
@@ -1513,7 +1706,7 @@ export default function DashboardPage() {
   const saveContributionChanges = async (id: string) => {
     if (!requireRole('Treasurer', 'save monthly contribution edits')) return;
     if (!contributionEditForm.memberName.trim()) {
-      alert('Member name is required.');
+      notify('Member name is required.');
       return;
     }
 
@@ -1529,7 +1722,7 @@ export default function DashboardPage() {
     const updatedAt = new Date().toISOString();
 
     if (total <= 0) {
-      alert('Enter at least one contribution amount before saving.');
+      notify('Enter at least one contribution amount before saving.', 'warning');
       return;
     }
 
@@ -1579,7 +1772,7 @@ export default function DashboardPage() {
       cancelContributionEditing();
     } catch (error) {
       console.error('Failed to update contribution:', error);
-      alert('Failed to update monthly contribution.');
+      notify('Failed to update monthly contribution.', 'error');
     }
   };
 
@@ -1635,7 +1828,7 @@ export default function DashboardPage() {
       });
     } catch (error) {
       console.error('Failed to update contribution status:', error);
-      alert('Failed to update contribution status.');
+      notify('Failed to update contribution status.', 'error');
     }
   };
 
@@ -1651,7 +1844,7 @@ export default function DashboardPage() {
         : window.prompt('Enter verifier name:', defaultVerifier)?.trim() || defaultVerifier;
 
     if (verificationStatus !== 'Unverified' && !verifiedBy.trim()) {
-      alert('Verifier name is required.');
+      notify('Verifier name is required.');
       return;
     }
 
@@ -1699,7 +1892,7 @@ export default function DashboardPage() {
       });
     } catch (error) {
       console.error('Failed to update payment verification:', error);
-      alert('Failed to update payment verification.');
+      notify('Failed to update payment verification.', 'error');
     }
   };
 
@@ -1720,7 +1913,7 @@ export default function DashboardPage() {
       });
     } catch (error) {
       console.error('Failed to delete contribution:', error);
-      alert('Failed to delete contribution.');
+      notify('Failed to delete contribution.', 'error');
     }
   };
 
@@ -1741,7 +1934,7 @@ export default function DashboardPage() {
       });
     } catch (error) {
       console.error('Failed to delete round:', error);
-      alert('Failed to delete round.');
+      notify('Failed to delete round.', 'error');
     }
   };
 
@@ -1766,7 +1959,7 @@ export default function DashboardPage() {
       });
     } catch (error) {
       console.error('Failed to complete round:', error);
-      alert('Failed to complete round.');
+      notify('Failed to complete round.', 'error');
     }
   };
 
@@ -1787,7 +1980,7 @@ export default function DashboardPage() {
       });
     } catch (error) {
       console.error('Failed to delete insurance policy:', error);
-      alert('Failed to delete insurance policy.');
+      notify('Failed to delete insurance policy.', 'error');
     }
   };
 
@@ -1808,7 +2001,7 @@ export default function DashboardPage() {
       });
     } catch (error) {
       console.error('Failed to delete bereaved case:', error);
-      alert('Failed to delete bereaved case.');
+      notify('Failed to delete bereaved case.', 'error');
     }
   };
 
@@ -1832,7 +2025,7 @@ export default function DashboardPage() {
       });
     } catch (error) {
       console.error('Failed to close bereaved case:', error);
-      alert('Failed to close bereaved family case.');
+      notify('Failed to close bereaved family case.', 'error');
     }
   };
 
@@ -1897,6 +2090,7 @@ export default function DashboardPage() {
     link.download = filename;
     link.click();
     URL.revokeObjectURL(url);
+    notify(`${filename} downloaded.`, 'success');
 
     if (auditInfo) {
       void writeAuditLog({
@@ -1942,7 +2136,7 @@ export default function DashboardPage() {
   const exportMemberStatementCsv = () => {
     if (!requireRole('Member', 'export member statements')) return;
     if (!statementMemberName) {
-      alert('Select a member before exporting a statement.');
+      notify('Select a member before exporting a statement.', 'warning');
       return;
     }
 
@@ -2217,15 +2411,26 @@ export default function DashboardPage() {
   const approvedAccessRequestCount = accessRequests.filter((requestItem) => requestItem.status === 'Approved').length;
   const rejectedAccessRequestCount = accessRequests.filter((requestItem) => requestItem.status === 'Rejected').length;
   const myAccessRequest = currentUser ? accessRequests.find((requestItem) => requestItem.uid === currentUser.uid) : undefined;
+  const contributionCollectionRate = totalMonthlyContributions > 0 ? Math.round((paidMonthlyContributions / totalMonthlyContributions) * 100) : 0;
+  const verificationRate = contributions.length > 0 ? Math.round((verifiedContributionCount / contributions.length) * 100) : 0;
+  const financeReviewCount = unverifiedContributionCount + rejectedContributionCount;
+  const urgentWorkCount = (canManageMembers ? pendingAccessRequestCount : 0) + (canManageFinance ? financeReviewCount + membersWithArrears : 0);
+  const lastUpdatedLabel = new Date().toLocaleString('en-KE', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 
   const formatCurrency = (amount: number) => `KES ${amount.toLocaleString('en-US')}`;
 
   if (loading || authLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.22),_transparent_34%),radial-gradient(circle_at_bottom_right,_rgba(99,102,241,0.24),_transparent_38%),linear-gradient(135deg,#020617,#0f172a_45%,#111827)] text-slate-300">
-        <div className="text-center">
-          <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-cyan-400 border-t-transparent" />
-          <p className="text-sm font-medium">Loading secured dashboard...</p>
+      <div className="grid min-h-dvh place-items-center bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.24),_transparent_34%),radial-gradient(circle_at_bottom_right,_rgba(99,102,241,0.26),_transparent_38%),linear-gradient(135deg,#020617,#0f172a_45%,#111827)] px-4 text-slate-300">
+        <div className="premium-surface rounded-[2rem] border border-white/10 bg-white/[0.07] p-8 text-center shadow-2xl shadow-black/30 ring-1 ring-white/5 backdrop-blur-2xl">
+          <div className="mx-auto mb-5 h-10 w-10 animate-spin rounded-full border-4 border-cyan-300 border-t-transparent shadow-lg shadow-cyan-950/30" />
+          <p className="text-sm font-black uppercase tracking-[0.18em] text-cyan-200">Loading</p>
+          <p className="mt-2 text-sm font-medium text-slate-300">Preparing secured dashboard...</p>
         </div>
       </div>
     );
@@ -2233,14 +2438,83 @@ export default function DashboardPage() {
 
   if (!currentUser) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.22),_transparent_34%),radial-gradient(circle_at_bottom_right,_rgba(99,102,241,0.24),_transparent_38%),linear-gradient(135deg,#020617,#0f172a_45%,#111827)] px-4 text-slate-100">
-        <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-white/[0.08] p-8 text-center shadow-2xl shadow-black/25 ring-1 ring-white/5 backdrop-blur-2xl">
-          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-300">Jirani Finance App</p>
-          <h1 className="mt-2 text-3xl font-black tracking-tight text-white">Sign in required</h1>
-          <p className="mt-3 text-sm leading-6 text-slate-300">Use your Google account to open the secured group finance dashboard. Admin and Treasurer actions are restricted by role.</p>
-          <button onClick={handleSignIn} className="mt-6 w-full rounded-2xl border border-cyan-300/30 bg-cyan-400/20 px-4 py-3 text-sm font-bold text-cyan-50 shadow-lg shadow-cyan-950/20 backdrop-blur-xl transition hover:bg-cyan-400/30" type="button">
-            Sign in with Google
-          </button>
+      <div className="relative min-h-dvh overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.28),_transparent_34%),radial-gradient(circle_at_85%_10%,_rgba(168,85,247,0.20),_transparent_35%),radial-gradient(circle_at_50%_100%,_rgba(16,185,129,0.10),_transparent_38%),linear-gradient(135deg,#020617,#0f172a_48%,#111827)] px-3 py-3 text-slate-100 sm:px-5 lg:px-8">
+        <style>{tableScrollbarCss}</style>
+        <ToastBanner />
+        <div className="pointer-events-none absolute inset-0 soft-grid-bg opacity-40" />
+        <div className="pointer-events-none absolute inset-0 soft-grid-bg opacity-30" />
+      <div className="pointer-events-none absolute -left-24 top-20 h-72 w-72 rounded-full bg-cyan-400/10 blur-3xl" />
+        <div className="pointer-events-none absolute -right-24 top-64 h-80 w-80 rounded-full bg-indigo-500/10 blur-3xl" />
+        <div className="relative mx-auto flex min-h-[calc(100dvh-1.5rem)] w-full max-w-7xl flex-col">
+          <nav className="sticky top-3 z-30 mb-5 flex flex-col gap-3 rounded-[1.75rem] border border-white/10 bg-slate-950/70 px-4 py-3 shadow-2xl shadow-black/30 ring-1 ring-white/5 backdrop-blur-2xl sm:flex-row sm:items-center sm:justify-between sm:px-5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-[1.1rem] border border-cyan-300/35 bg-gradient-to-br from-cyan-300/25 to-indigo-400/20 text-sm font-black text-cyan-50 shadow-lg shadow-cyan-950/30">
+                JM
+              </div>
+              <div>
+                <p className="text-base font-black tracking-tight text-white">Jirani Mwema SHG</p>
+                <p className="text-xs font-medium text-slate-300">Self Help Group Finance Portal</p>
+              </div>
+            </div>
+            <button onClick={handleSignIn} className="w-full rounded-2xl border border-cyan-200/30 bg-gradient-to-r from-cyan-400/25 to-indigo-400/25 px-4 py-3 text-sm font-black text-cyan-50 shadow-lg shadow-cyan-950/25 backdrop-blur-xl transition hover:-translate-y-0.5 hover:from-cyan-400/35 hover:to-indigo-400/35 sm:w-auto sm:py-2" type="button">
+              Member Sign In
+            </button>
+          </nav>
+
+          <main className="grid flex-1 items-start gap-4 pt-3 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:gap-8">
+            <section className="premium-surface rounded-[2rem] border border-white/10 bg-slate-950/35 p-5 shadow-2xl shadow-black/25 ring-1 ring-white/5 backdrop-blur-2xl sm:p-8 lg:rounded-[2.5rem] lg:p-10">
+              <p className="inline-flex rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.24em] text-cyan-200">Transparent. Accountable. Member-owned.</p>
+              <h1 className="mt-5 text-4xl font-black tracking-tight text-white sm:text-5xl lg:text-7xl">
+                Jirani Mwema SHG
+              </h1>
+              <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300 sm:text-base lg:text-lg lg:leading-8">
+                A modern digital finance workspace for managing members, monthly contributions, merry-go-round payouts, insurance records, bereavement support, arrears, payment verification, reports, and audit logs.
+              </p>
+
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                <button onClick={handleSignIn} className="rounded-2xl border border-cyan-200/30 bg-gradient-to-r from-cyan-400/30 to-indigo-400/30 px-6 py-3 text-center text-sm font-black text-cyan-50 shadow-lg shadow-cyan-950/25 backdrop-blur-xl transition hover:-translate-y-0.5 hover:from-cyan-400/40 hover:to-indigo-400/40" type="button">
+                  Open Member Portal
+                </button>
+                <a href="#features" className="rounded-2xl border border-white/10 bg-white/10 px-6 py-3 text-center text-sm font-bold text-slate-100 shadow-lg shadow-black/10 backdrop-blur-xl transition hover:bg-white/15">
+                  View Features
+                </a>
+              </div>
+
+              <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="touch-card rounded-2xl border border-white/10 bg-slate-950/35 p-4 shadow-lg shadow-black/10 ring-1 ring-white/5 transition hover:-translate-y-0.5 hover:bg-white/[0.08]">
+                  <p className="text-2xl font-black text-white">SHG</p>
+                  <p className="mt-1 text-xs text-slate-300">Member finance management</p>
+                </div>
+                <div className="touch-card rounded-2xl border border-white/10 bg-slate-950/35 p-4 shadow-lg shadow-black/10 ring-1 ring-white/5 transition hover:-translate-y-0.5 hover:bg-white/[0.08]">
+                  <p className="text-2xl font-black text-white">Role-Based</p>
+                  <p className="mt-1 text-xs text-slate-300">Admin and Treasurer controls</p>
+                </div>
+                <div className="touch-card rounded-2xl border border-white/10 bg-slate-950/35 p-4 shadow-lg shadow-black/10 ring-1 ring-white/5 transition hover:-translate-y-0.5 hover:bg-white/[0.08]">
+                  <p className="text-2xl font-black text-white">Audit Ready</p>
+                  <p className="mt-1 text-xs text-slate-300">Every key action tracked</p>
+                </div>
+              </div>
+            </section>
+
+            <section id="features" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 lg:gap-4">
+              {[
+                ['Monthly Contributions', 'Track welfare, merry-go-round, insurance, bereavement support, paid amounts, balances, and arrears.'],
+                ['Payment Verification', 'Treasurer/Admin can verify, reject, and review member payments with notes.'],
+                ['Member Statements', 'Generate individual statements with expected amounts, paid totals, arrears, and verification history.'],
+                ['Access Requests', 'New users can request access and Admin can approve roles directly from the app.'],
+              ].map(([title, detail]) => (
+                <div key={title} className="premium-surface touch-card rounded-[1.65rem] border border-white/10 bg-slate-950/35 p-4 shadow-xl shadow-black/20 ring-1 ring-white/5 backdrop-blur-2xl transition hover:-translate-y-0.5 hover:border-cyan-300/25 sm:p-5">
+                  <div className="mb-3 h-2.5 w-2.5 rounded-full bg-cyan-300 shadow-lg shadow-cyan-300/40" />
+                  <h2 className="text-lg font-black text-white">{title}</h2>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">{detail}</p>
+                </div>
+              ))}
+            </section>
+          </main>
+
+          <footer className="mt-5 rounded-3xl border border-white/10 bg-white/[0.06] px-4 py-4 text-center text-xs text-slate-400 backdrop-blur-2xl sm:mt-8">
+            © {new Date().getFullYear()} Jirani Mwema SHG. Secure group finance management for registered members.
+          </footer>
         </div>
       </div>
     );
@@ -2248,11 +2522,13 @@ export default function DashboardPage() {
 
   if (currentUserRole === 'Guest') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.22),_transparent_34%),radial-gradient(circle_at_bottom_right,_rgba(99,102,241,0.24),_transparent_38%),linear-gradient(135deg,#020617,#0f172a_45%,#111827)] px-4 py-8 text-slate-100">
-        <div className="w-full max-w-3xl rounded-[2rem] border border-white/10 bg-white/[0.08] p-6 shadow-2xl shadow-black/25 ring-1 ring-white/5 backdrop-blur-2xl">
-          <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+      <div className="grid min-h-dvh place-items-center bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.22),_transparent_34%),radial-gradient(circle_at_bottom_right,_rgba(99,102,241,0.24),_transparent_38%),linear-gradient(135deg,#020617,#0f172a_45%,#111827)] px-3 py-4 text-slate-100 sm:px-5">
+        <style>{tableScrollbarCss}</style>
+        <ToastBanner />
+        <div className="w-full max-w-3xl rounded-3xl border border-white/10 bg-white/[0.08] p-4 shadow-xl shadow-black/20 ring-1 ring-white/5 backdrop-blur-2xl sm:p-6">
+          <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-300">Jirani Finance App</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-300">Jirani Mwema SHG</p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-white">Request Access</h1>
               <p className="mt-2 text-sm leading-6 text-slate-300">You are signed in, but no active role has been assigned to this account yet. Submit this request so an Admin can approve you.</p>
             </div>
@@ -2272,7 +2548,7 @@ export default function DashboardPage() {
             </div>
           ) : null}
 
-          <form onSubmit={handleAccessRequestSubmit} className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <form onSubmit={handleAccessRequestSubmit} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <input
               value={accessRequestForm.displayName}
               onChange={(event) => setAccessRequestForm((previous) => ({ ...previous, displayName: event.target.value }))}
@@ -2303,12 +2579,12 @@ export default function DashboardPage() {
               value={accessRequestForm.reason}
               onChange={(event) => setAccessRequestForm((previous) => ({ ...previous, reason: event.target.value }))}
               placeholder="Why do you need access? Example: I am a registered group member."
-              className="min-h-28 rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none md:col-span-2"
+              className="min-h-28 rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none sm:col-span-2"
             />
             <button
               type="submit"
               disabled={submittingAccessRequest}
-              className="rounded-2xl border border-cyan-300/20 bg-cyan-400/20 px-4 py-3 text-sm font-bold text-cyan-50 transition hover:bg-cyan-400/30 disabled:cursor-not-allowed disabled:opacity-50 md:col-span-2"
+              className="rounded-2xl border border-cyan-300/20 bg-cyan-400/20 px-4 py-3 text-sm font-bold text-cyan-50 transition hover:bg-cyan-400/30 disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-2"
             >
               {submittingAccessRequest ? 'Submitting Request...' : myAccessRequest?.status === 'Pending' ? 'Update Pending Request' : 'Submit Access Request'}
             </button>
@@ -2319,39 +2595,103 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.22),_transparent_32%),radial-gradient(circle_at_80%_0%,_rgba(168,85,247,0.18),_transparent_32%),linear-gradient(135deg,#020617,#0f172a_48%,#111827)] px-4 py-8 text-slate-100 sm:px-8">
+    <div id="app-top" className="relative min-h-dvh overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.24),_transparent_32%),radial-gradient(circle_at_80%_0%,_rgba(168,85,247,0.20),_transparent_32%),radial-gradient(circle_at_45%_100%,_rgba(16,185,129,0.08),_transparent_36%),linear-gradient(135deg,#020617,#0f172a_48%,#111827)] px-3 py-4 text-slate-100 sm:px-5 pb-24 lg:px-8 lg:py-6">
+      <style>{tableScrollbarCss}</style>
+      <ToastBanner />
+      <a href="#dashboard-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[90] focus:rounded-2xl focus:bg-cyan-400 focus:px-4 focus:py-3 focus:text-sm focus:font-black focus:text-slate-950">Skip to dashboard content</a>
       <div className="pointer-events-none absolute -left-24 top-20 h-72 w-72 rounded-full bg-cyan-400/10 blur-3xl" />
       <div className="pointer-events-none absolute -right-24 top-64 h-80 w-80 rounded-full bg-indigo-500/10 blur-3xl" />
-      <header className="relative mb-8 flex flex-col gap-4 rounded-[2rem] border border-white/10 bg-white/[0.08] p-6 shadow-2xl shadow-black/25 ring-1 ring-white/5 backdrop-blur-2xl md:flex-row md:items-center md:justify-between">
+      <header className="sticky top-3 z-30 mx-auto mb-5 flex w-full max-w-7xl flex-col gap-4 rounded-3xl border border-white/10 bg-slate-950/60 p-4 shadow-xl shadow-black/20 ring-1 ring-white/5 backdrop-blur-2xl sm:p-5 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-300">Jirani Finance App</p>
-          <h1 className="mt-1 text-3xl font-black tracking-tight text-white md:text-4xl">Group Finance Dashboard</h1>
+          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-300">Jirani Mwema SHG</p>
+          <h1 className="mt-1 text-2xl font-black tracking-tight text-white sm:text-3xl lg:text-4xl">Group Finance Dashboard</h1>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-slate-300">
+            <span className="rounded-full border border-white/10 bg-white/[0.07] px-3 py-1">Updated {lastUpdatedLabel}</span>
+            <span className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-1 text-emerald-200">{contributionCollectionRate}% collected</span>
+            <span className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-cyan-200">{verificationRate}% verified</span>
+          </div>
         </div>
-        <div className="flex flex-col gap-3 md:items-end">
+        <div className="flex flex-col gap-3 lg:items-end">
           <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-200">
             <p className="font-semibold text-white">{currentUser.displayName || currentUser.email}</p>
             <p className="text-xs text-slate-300">Role: <span className="font-bold text-cyan-200">{currentUserRole}</span></p>
             <p className="text-xs text-slate-400">UID: <span className="font-mono">{currentUser.uid}</span></p>
           </div>
-          <div className="flex flex-wrap gap-3">
-            <button disabled={!canViewReports} onClick={exportContributionsCsv} className="rounded-2xl border border-emerald-300/20 bg-emerald-400/20 px-4 py-2 text-sm font-semibold text-emerald-100 shadow-lg shadow-emerald-950/20 backdrop-blur-xl transition hover:bg-emerald-400/30 disabled:cursor-not-allowed disabled:opacity-40" type="button">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:flex lg:flex-wrap lg:justify-end">
+            <button disabled={!canViewReports} onClick={exportContributionsCsv} className="rounded-2xl border border-emerald-300/25 bg-emerald-400/18 px-4 py-3 text-sm font-black text-emerald-100 shadow-lg shadow-emerald-950/20 backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-emerald-400/28 disabled:cursor-not-allowed disabled:opacity-40" type="button">
               Export CSV
             </button>
-            <button disabled={!canViewReports} onClick={printDashboardReport} className="rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-slate-100 shadow-lg shadow-black/10 backdrop-blur-xl transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-40" type="button">
+            <button disabled={!canViewReports} onClick={printDashboardReport} className="rounded-2xl border border-white/10 bg-white/[0.09] px-4 py-3 text-sm font-black text-slate-100 shadow-lg shadow-black/10 backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-white/[0.15] disabled:cursor-not-allowed disabled:opacity-40" type="button">
               Print Report
             </button>
-            <button onClick={handleSignOut} className="rounded-2xl border border-rose-300/20 bg-rose-400/15 px-4 py-2 text-sm font-semibold text-rose-100 shadow-lg shadow-black/10 backdrop-blur-xl transition hover:bg-rose-400/25" type="button">
+            <button onClick={handleSignOut} className="rounded-2xl border border-rose-300/25 bg-rose-400/15 px-4 py-3 text-sm font-black text-rose-100 shadow-lg shadow-black/10 backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-rose-400/25" type="button">
               Sign Out
             </button>
           </div>
         </div>
       </header>
 
-      <main className="relative">
+      <nav className="relative z-20 mx-auto mb-5 flex w-full max-w-7xl gap-2 visible-horizontal-scrollbar overflow-x-auto overscroll-x-contain rounded-[1.4rem] border border-white/10 bg-slate-950/45 p-2 pb-4 text-xs font-bold text-slate-200 shadow-xl shadow-black/20 backdrop-blur-2xl sm:text-sm" aria-label="Dashboard sections">
+        {[
+          'Access Control',
+          canManageMembers ? 'Role Management' : '',
+          canManageMembers ? 'Access Requests' : '',
+          'Stats',
+          'Monthly Contributors',
+          'Member Statement',
+          'Reports & Exports',
+          'Audit Logs',
+          canManageMembers ? 'Member Tracker' : '',
+        ].filter(Boolean).map((item) => (
+          <a key={item} href={`#${String(item).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`} className="shrink-0 rounded-2xl border border-white/10 bg-white/[0.07] px-3 py-2 transition hover:-translate-y-0.5 hover:border-cyan-300/25 hover:bg-cyan-400/10">
+            {item}
+          </a>
+        ))}
+      </nav>
+
+      <section className="premium-surface relative z-10 mx-auto mb-6 w-full max-w-7xl rounded-[2rem] border border-white/10 bg-slate-950/40 p-3 shadow-2xl shadow-black/25 ring-1 ring-white/5 backdrop-blur-2xl sm:p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">Today&apos;s workflow</p>
+            <h2 className="mt-1 text-xl font-black tracking-tight text-white sm:text-2xl">
+              {urgentWorkCount > 0 ? `${urgentWorkCount} item(s) need attention` : 'Everything important is under control'}
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-slate-300">
+              Start with access approvals, payment reviews, and arrears before exporting reports.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-4 lg:min-w-[520px]">
+            {canManageMembers ? (
+              <a href="#access-requests" className="rounded-2xl border border-amber-300/20 bg-amber-400/10 p-3 transition hover:bg-amber-400/15">
+                <p className="text-2xl font-black text-amber-200">{pendingAccessRequestCount}</p>
+                <p className="mt-1 text-[11px] font-bold uppercase tracking-[0.14em] text-amber-100/80">Access</p>
+              </a>
+            ) : null}
+            {canManageFinance ? (
+              <a href="#monthly-contributors" className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-3 transition hover:bg-cyan-400/15">
+                <p className="text-2xl font-black text-cyan-200">{financeReviewCount}</p>
+                <p className="mt-1 text-[11px] font-bold uppercase tracking-[0.14em] text-cyan-100/80">Reviews</p>
+              </a>
+            ) : null}
+            {canManageFinance ? (
+              <a href="#member-statement" className="rounded-2xl border border-rose-300/20 bg-rose-400/10 p-3 transition hover:bg-rose-400/15">
+                <p className="text-2xl font-black text-rose-200">{membersWithArrears}</p>
+                <p className="mt-1 text-[11px] font-bold uppercase tracking-[0.14em] text-rose-100/80">Arrears</p>
+              </a>
+            ) : null}
+            <a href="#audit-logs" className="rounded-2xl border border-white/10 bg-white/[0.07] p-3 transition hover:bg-white/[0.12]">
+              <p className="text-2xl font-black text-white">{recentAuditCount}</p>
+              <p className="mt-1 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-300">Today</p>
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <main id="dashboard-content" className="relative mx-auto w-full max-w-7xl">
         <Module
           title="Access Control"
           content={
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <StatCard title="Signed In As" value={currentUserRole} detail={currentUser.email || 'Google account'} />
               <StatCard title="Member Records" value={canManageMembers ? 'Editable' : 'Locked'} detail="Admin access required" />
               <StatCard title="Finance Records" value={canManageFinance ? 'Editable' : 'Locked'} detail="Treasurer or Admin access required" />
@@ -2365,37 +2705,37 @@ export default function DashboardPage() {
             title="Role Management"
             content={
               <div className="space-y-5">
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   <StatCard title="Active Users" value={activeRoleMembershipCount} detail="Role documents with active status" />
                   <StatCard title="Admins" value={adminRoleMembershipCount} detail="Includes bootstrap admin email" />
                   <StatCard title="Treasurers" value={treasurerRoleMembershipCount} detail="Finance access users" />
                   <StatCard title="Current UID" value="Copy from header" detail="Use Firebase Auth UID when adding users" />
                 </div>
 
-                <form onSubmit={handleRoleMembershipSubmit} className="grid grid-cols-1 gap-3 rounded-[1.5rem] border border-white/10 bg-white/[0.05] p-4 md:grid-cols-6">
+                <form onSubmit={handleRoleMembershipSubmit} className="grid grid-cols-1 gap-3 rounded-[1.5rem] border border-white/10 bg-white/[0.05] p-4 sm:grid-cols-2 xl:grid-cols-6">
                   <input
                     value={newRoleMember.uid}
                     onChange={(event) => setNewRoleMember((previous) => ({ ...previous, uid: event.target.value }))}
                     placeholder="Firebase Auth UID"
-                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none md:col-span-2"
+                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none sm:col-span-2"
                   />
                   <input
                     value={newRoleMember.email}
                     onChange={(event) => setNewRoleMember((previous) => ({ ...previous, email: event.target.value }))}
                     placeholder="User email"
                     type="email"
-                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none md:col-span-2"
+                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none sm:col-span-2"
                   />
                   <input
                     value={newRoleMember.displayName}
                     onChange={(event) => setNewRoleMember((previous) => ({ ...previous, displayName: event.target.value }))}
                     placeholder="Display name"
-                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none md:col-span-2"
+                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none sm:col-span-2"
                   />
                   <select
                     value={newRoleMember.role}
                     onChange={(event) => setNewRoleMember((previous) => ({ ...previous, role: event.target.value as ManagedUserRole }))}
-                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white focus:border-cyan-400 focus:outline-none"
+                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white focus:border-cyan-400 focus:outline-none"
                   >
                     {managedRoleOptions.map((role) => (
                       <option className="bg-slate-900" key={role} value={role}>{role}</option>
@@ -2404,7 +2744,7 @@ export default function DashboardPage() {
                   <select
                     value={newRoleMember.status}
                     onChange={(event) => setNewRoleMember((previous) => ({ ...previous, status: event.target.value as MembershipStatus }))}
-                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white focus:border-cyan-400 focus:outline-none"
+                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white focus:border-cyan-400 focus:outline-none"
                   >
                     {membershipStatusOptions.map((status) => (
                       <option className="bg-slate-900" key={status} value={status}>{status}</option>
@@ -2413,7 +2753,7 @@ export default function DashboardPage() {
                   <button
                     type="button"
                     onClick={handleCurrentUserRoleBootstrap}
-                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.13]"
+                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-3 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.13]"
                   >
                     Use My UID
                   </button>
@@ -2426,18 +2766,18 @@ export default function DashboardPage() {
                   </button>
                 </form>
 
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   <input
                     type="search"
                     value={roleSearch}
                     onChange={(event) => setRoleSearch(event.target.value)}
                     placeholder="Search UID, email, name, role..."
-                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none md:col-span-2"
+                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none sm:col-span-2"
                   />
                   <select
                     value={roleStatusFilter}
                     onChange={(event) => setRoleStatusFilter(event.target.value as 'All' | MembershipStatus)}
-                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white focus:border-cyan-400 focus:outline-none"
+                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white focus:border-cyan-400 focus:outline-none"
                   >
                     <option className="bg-slate-900" value="All">All statuses</option>
                     {membershipStatusOptions.map((status) => (
@@ -2446,8 +2786,9 @@ export default function DashboardPage() {
                   </select>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-white/10 text-sm">
+                <div className="visible-horizontal-scrollbar w-full max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-cyan-300/20 bg-black/10 pb-5 shadow-inner shadow-black/20">
+                  <div className="table-scroll-hint sm:hidden">Swipe table ↔</div>
+                  <table className="min-w-[760px] divide-y divide-white/10 text-sm">
                     <thead className="text-left text-xs uppercase tracking-[0.16em] text-slate-400">
                       <tr>
                         <th className="px-3 py-3">User</th>
@@ -2521,25 +2862,25 @@ export default function DashboardPage() {
             title="Access Requests"
             content={
               <div className="space-y-5">
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   <StatCard title="Pending Requests" value={pendingAccessRequestCount} detail="Awaiting Admin approval" />
                   <StatCard title="Approved Requests" value={approvedAccessRequestCount} detail="Converted to active roles" />
                   <StatCard title="Rejected Requests" value={rejectedAccessRequestCount} detail="Declined access requests" />
                   <StatCard title="Visible Requests" value={filteredAccessRequests.length} detail="After current filters" />
                 </div>
 
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   <input
                     type="search"
                     value={accessRequestSearch}
                     onChange={(event) => setAccessRequestSearch(event.target.value)}
                     placeholder="Search name, email, phone, reason..."
-                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none md:col-span-2"
+                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none sm:col-span-2"
                   />
                   <select
                     value={accessRequestStatusFilter}
                     onChange={(event) => setAccessRequestStatusFilter(event.target.value as 'All' | AccessRequestStatus)}
-                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white focus:border-cyan-400 focus:outline-none"
+                    className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white focus:border-cyan-400 focus:outline-none"
                   >
                     <option className="bg-slate-900" value="All">All request statuses</option>
                     <option className="bg-slate-900" value="Pending">Pending</option>
@@ -2548,8 +2889,9 @@ export default function DashboardPage() {
                   </select>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-white/10 text-sm">
+                <div className="visible-horizontal-scrollbar w-full max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-cyan-300/20 bg-black/10 pb-5 shadow-inner shadow-black/20">
+                  <div className="table-scroll-hint sm:hidden">Swipe table ↔</div>
+                  <table className="min-w-[760px] divide-y divide-white/10 text-sm">
                     <thead className="text-left text-xs uppercase tracking-[0.16em] text-slate-400">
                       <tr>
                         <th className="px-3 py-3">Requester</th>
@@ -2619,7 +2961,7 @@ export default function DashboardPage() {
         <Module
           title="Stats"
           content={
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-7">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-7">
               <StatCard title="Total Members" value={totalMembers} detail="From database records" />
               <StatCard title="Member Insurance" value={formatCurrency(totalCollected)} detail="Completed member insurance" />
               <StatCard title="Pending Balance" value={formatCurrency(totalBalancePending)} detail="Still pending collection" />
@@ -2636,7 +2978,7 @@ export default function DashboardPage() {
           title="Reports & Exports"
           content={
             <div className="space-y-5">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
                   <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Expected Collection</p>
                   <p className="mt-2 text-2xl font-black text-emerald-300">{formatCurrency(totalMonthlyContributions)}</p>
@@ -2659,7 +3001,7 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <button type="button" onClick={exportDashboardSummaryCsv} className="rounded-2xl border border-cyan-300/20 bg-cyan-400/20 px-4 py-3 text-left text-sm font-semibold text-cyan-50 transition hover:bg-cyan-400/30">
                   Dashboard Summary CSV
                   <span className="mt-1 block text-xs font-normal text-cyan-100/75">Overall financial summary</span>
@@ -2710,7 +3052,7 @@ export default function DashboardPage() {
           title="Audit Logs"
           content={
             <div className="space-y-5">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
                   <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Total Logs</p>
                   <p className="mt-2 text-2xl font-black text-white">{auditLogs.length}</p>
@@ -2728,18 +3070,18 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <input
                   type="search"
                   value={auditSearch}
                   onChange={(event) => setAuditSearch(event.target.value)}
                   placeholder="Search action, member, module, note..."
-                  className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none"
+                  className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none"
                 />
                 <select
                   value={auditModuleFilter}
                   onChange={(event) => setAuditModuleFilter(event.target.value)}
-                  className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white focus:border-cyan-400 focus:outline-none"
+                  className="rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white focus:border-cyan-400 focus:outline-none"
                 >
                   <option className="bg-slate-900" value="All">All modules</option>
                   {auditModules.map((moduleName) => (
@@ -2747,17 +3089,18 @@ export default function DashboardPage() {
                   ))}
                 </select>
                 <div className="flex gap-2">
-                  <button type="button" onClick={() => { setAuditSearch(''); setAuditModuleFilter('All'); }} className="flex-1 rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.13]">
+                  <button type="button" onClick={() => { setAuditSearch(''); setAuditModuleFilter('All'); }} className="flex-1 rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-3 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.13]">
                     Clear
                   </button>
-                  <button type="button" onClick={exportAuditLogsCsv} className="flex-1 rounded-2xl border border-emerald-300/20 bg-emerald-400/20 px-4 py-2 text-sm font-semibold text-emerald-50 transition hover:bg-emerald-400/30">
+                  <button type="button" onClick={exportAuditLogsCsv} className="flex-1 rounded-2xl border border-emerald-300/20 bg-emerald-400/20 px-4 py-3 text-sm font-semibold text-emerald-50 transition hover:bg-emerald-400/30">
                     Export CSV
                   </button>
                 </div>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-white/10 text-sm">
+              <div className="visible-horizontal-scrollbar w-full max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-cyan-300/20 bg-black/10 pb-5 shadow-inner shadow-black/20">
+                <div className="table-scroll-hint sm:hidden">Swipe table ↔</div>
+                <table className="min-w-[760px] divide-y divide-white/10 text-sm">
                   <thead className="text-left text-xs uppercase tracking-[0.16em] text-slate-400">
                     <tr>
                       <th className="px-3 py-3">Date</th>
@@ -2791,7 +3134,7 @@ export default function DashboardPage() {
           }
         />
 
-        <div className="mb-8 grid grid-cols-1 gap-8 lg:grid-cols-2">
+        <div className="mb-8 grid min-w-0 grid-cols-1 gap-8 lg:grid-cols-2">
           <Module
             title="Monthly Contributors"
             content={
@@ -2803,7 +3146,7 @@ export default function DashboardPage() {
                       type="search"
                       value={contributionMemberSearch}
                       onChange={(event) => setContributionMemberSearch(event.target.value)}
-                      className="w-full rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-cyan-300/60"
+                      className="w-full rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-cyan-300/60"
                       placeholder="Type member name..."
                     />
                   </div>
@@ -2813,7 +3156,7 @@ export default function DashboardPage() {
                     <select
                       value={contributionMonthFilter}
                       onChange={(event) => setContributionMonthFilter(event.target.value)}
-                      className="w-full rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white outline-none focus:border-cyan-300/60"
+                      className="w-full rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white outline-none focus:border-cyan-300/60"
                     >
                       <option value="All">All months</option>
                       {availableContributionMonths.map((month) => (
@@ -2829,7 +3172,7 @@ export default function DashboardPage() {
                     <select
                       value={contributionStatusFilter}
                       onChange={(event) => setContributionStatusFilter(event.target.value as 'All' | PaymentStatus)}
-                      className="w-full rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white outline-none focus:border-cyan-300/60"
+                      className="w-full rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white outline-none focus:border-cyan-300/60"
                     >
                       <option value="All">All statuses</option>
                       <option value="Paid">Paid</option>
@@ -2842,7 +3185,7 @@ export default function DashboardPage() {
                     <select
                       value={contributionVerificationFilter}
                       onChange={(event) => setContributionVerificationFilter(event.target.value as 'All' | VerificationStatus)}
-                      className="w-full rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white outline-none focus:border-cyan-300/60"
+                      className="w-full rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white outline-none focus:border-cyan-300/60"
                     >
                       <option value="All">All verification</option>
                       <option value="Unverified">Unverified</option>
@@ -2862,7 +3205,7 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-4 xl:grid-cols-7">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 xl:grid-cols-7">
                   <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3">
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Rows Shown</p>
                     <p className="mt-1 text-xl font-black text-white">{filteredContributions.length}</p>
@@ -2893,8 +3236,9 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-white/10 overflow-hidden">
+                <div className="visible-horizontal-scrollbar w-full max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-cyan-300/20 bg-black/10 pb-5 shadow-inner shadow-black/20">
+                  <div className="table-scroll-hint sm:hidden">Swipe table ↔</div>
+                  <table className="min-w-[880px] divide-y divide-white/10 overflow-hidden text-sm">
                   <thead>
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Member</th>
@@ -3147,7 +3491,7 @@ export default function DashboardPage() {
                       <select
                         value={statementMemberName}
                         onChange={(event) => setStatementMemberName(event.target.value)}
-                        className="w-full rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-2 text-sm text-white outline-none focus:border-cyan-300/60"
+                        className="w-full rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white outline-none focus:border-cyan-300/60"
                       >
                         <option value="">Choose member...</option>
                         {statementMemberOptions.map((memberName) => (
@@ -3162,13 +3506,13 @@ export default function DashboardPage() {
                       type="button"
                       onClick={exportMemberStatementCsv}
                       disabled={!statementMemberName || statementContributions.length === 0}
-                      className="rounded-2xl border border-emerald-300/20 bg-emerald-400/20 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/30 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="rounded-2xl border border-emerald-300/20 bg-emerald-400/20 px-4 py-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/30 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Export Statement CSV
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-6">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
                     <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3">
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Rows</p>
                       <p className="mt-1 text-xl font-black text-white">{statementContributions.length}</p>
@@ -3195,8 +3539,9 @@ export default function DashboardPage() {
                     </div>
                   </div>
 
-                  <div className="overflow-x-auto rounded-[1.5rem] border border-white/10">
-                    <table className="min-w-full divide-y divide-white/10 overflow-hidden">
+                  <div className="visible-horizontal-scrollbar w-full max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-cyan-300/20 bg-black/10 pb-5 shadow-inner shadow-black/20">
+                    <div className="table-scroll-hint sm:hidden">Swipe table ↔</div>
+                    <table className="min-w-[880px] divide-y divide-white/10 overflow-hidden text-sm">
                       <thead className="bg-white/[0.05]">
                         <tr>
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Month</th>
@@ -3209,7 +3554,7 @@ export default function DashboardPage() {
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Notes</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-white/10/50">
+                      <tbody className="divide-y divide-white/10/50 [&_tr:hover]:bg-white/[0.035]">
                         {statementContributions.map((contribution) => {
                           const verificationStatus = normalizeVerificationStatus(contribution.verificationStatus);
 
@@ -3266,94 +3611,188 @@ export default function DashboardPage() {
           <Module
             title="Merry-Go-Round Schedule"
             content={
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-white/10 overflow-hidden">
-                  <thead>
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Round</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Recipient</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Payout Date</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Status</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Verification</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Verifier</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Notes</th>
-                      <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/10/50">
-                    {merryGoRound.map((round) => (
-                      <tr key={round.id} className={round.status === 'Current' ? 'bg-cyan-400/5' : ''}>
-                        <td className="px-4 py-3 text-sm font-bold text-slate-300">#{round.roundNumber}</td>
-                        <td className="px-4 py-3 text-sm font-semibold text-white">
-                          {round.recipientName}
-                          <span className="block text-xs font-normal text-emerald-400">{formatCurrency(round.payoutAmount)}</span>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-slate-300">{formatCalendarDate(round.payoutDate)}</td>
-                        <td className="px-4 py-3">
-                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${round.status === 'Completed' ? 'bg-emerald-400/10 text-emerald-300 border border-emerald-300/20' : round.status === 'Current' ? 'bg-cyan-400/10 text-cyan-300 border border-cyan-300/20' : 'bg-white/10 text-slate-300 border border-white/10'}`}>
-                            {round.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex justify-end gap-3">
-                            {round.status !== 'Completed' && (
-                              <button onClick={() => markRoundAsCompleted(round.id)} className="text-xs font-semibold text-emerald-400 underline hover:text-emerald-300" type="button">Complete</button>
-                            )}
-                            <button onClick={() => handleDeleteRound(round.id)} className="text-xs font-semibold text-rose-400 underline hover:text-rose-300" type="button">Delete</button>
-                          </div>
-                        </td>
+              <div className="space-y-3">
+                <div className="space-y-3 sm:hidden">
+                  {merryGoRound.map((round) => (
+                    <article key={round.id} className={`rounded-3xl border p-4 shadow-xl shadow-black/20 ${round.status === 'Current' ? 'border-cyan-300/30 bg-cyan-400/10' : 'border-white/10 bg-black/15'}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Round #{round.roundNumber}</p>
+                          <h3 className="mt-1 text-base font-black text-white">{round.recipientName}</h3>
+                          <p className="mt-1 text-sm font-semibold text-emerald-300">{formatCurrency(round.payoutAmount)}</p>
+                        </div>
+                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${round.status === 'Completed' ? 'bg-emerald-400/10 text-emerald-300 border border-emerald-300/20' : round.status === 'Current' ? 'bg-cyan-400/10 text-cyan-300 border border-cyan-300/20' : 'bg-white/10 text-slate-300 border border-white/10'}`}>
+                          {round.status}
+                        </span>
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-1 gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Payout Date</p>
+                          <p className="mt-1 text-sm text-slate-200">{formatCalendarDate(round.payoutDate)}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-3">
+                        {round.status !== 'Completed' && (
+                          <button onClick={() => markRoundAsCompleted(round.id)} className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-2 text-xs font-bold text-emerald-300" type="button">
+                            Complete
+                          </button>
+                        )}
+                        <button onClick={() => handleDeleteRound(round.id)} className="rounded-full border border-rose-300/30 bg-rose-400/10 px-3 py-2 text-xs font-bold text-rose-300" type="button">
+                          Delete
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+
+                  {merryGoRound.length === 0 && (
+                    <div className="rounded-3xl border border-white/10 bg-black/15 p-5 text-center text-sm text-slate-400">
+                      No rounds scheduled yet.
+                    </div>
+                  )}
+                </div>
+
+                <div className="hidden sm:block visible-horizontal-scrollbar w-full max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-cyan-300/20 bg-black/10 pb-5 shadow-inner shadow-black/20">
+                  <table className="min-w-[760px] divide-y divide-white/10 overflow-hidden text-sm">
+                    <thead>
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Round</th>
+                        <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Recipient</th>
+                        <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Payout Date</th>
+                        <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Status</th>
+                        <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Actions</th>
                       </tr>
-                    ))}
-                    {merryGoRound.length === 0 && (
-                      <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-slate-400">No rounds scheduled yet.</td></tr>
-                    )}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-white/10/50 [&_tr:hover]:bg-white/[0.035]">
+                      {merryGoRound.map((round) => (
+                        <tr key={round.id} className={round.status === 'Current' ? 'bg-cyan-400/5' : ''}>
+                          <td className="px-4 py-3 text-sm font-bold text-slate-300">#{round.roundNumber}</td>
+                          <td className="px-4 py-3 text-sm font-semibold text-white">
+                            {round.recipientName}
+                            <span className="block text-xs font-normal text-emerald-400">{formatCurrency(round.payoutAmount)}</span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{formatCalendarDate(round.payoutDate)}</td>
+                          <td className="px-4 py-3">
+                            <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${round.status === 'Completed' ? 'bg-emerald-400/10 text-emerald-300 border border-emerald-300/20' : round.status === 'Current' ? 'bg-cyan-400/10 text-cyan-300 border border-cyan-300/20' : 'bg-white/10 text-slate-300 border border-white/10'}`}>
+                              {round.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex justify-end gap-3">
+                              {round.status !== 'Completed' && (
+                                <button onClick={() => markRoundAsCompleted(round.id)} className="text-xs font-semibold text-emerald-400 underline hover:text-emerald-300" type="button">Complete</button>
+                              )}
+                              <button onClick={() => handleDeleteRound(round.id)} className="text-xs font-semibold text-rose-400 underline hover:text-rose-300" type="button">Delete</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {merryGoRound.length === 0 && (
+                        <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-slate-400">No rounds scheduled yet.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             }
           />
         </div>
 
-        <div className="mb-8 grid grid-cols-1 gap-8 lg:grid-cols-2">
+        <div className="mb-8 grid min-w-0 grid-cols-1 gap-8 lg:grid-cols-2">
           <Module
             title="Insurance Provider Policies"
             content={
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-white/10 overflow-hidden">
-                  <thead>
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Provider</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Month</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Coverage Dates</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Premium</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Benefit</th>
-                      <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/10/50">
-                    {insurancePolicies.map((policy) => (
-                      <tr key={policy.id}>
-                        <td className="px-4 py-3">
-                          <span className="block font-semibold text-white">{policy.providerName}</span>
-                          <span className="text-xs text-slate-400">{policy.policyNumber || 'No policy number'}</span>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-slate-300">{policy.month}</td>
-                        <td className="px-4 py-3 text-sm text-slate-300">
-                          <span className="block">Start: {formatCalendarDate(policy.policyStartDate)}</span>
-                          <span className="block text-xs text-slate-400">End: {formatCalendarDate(policy.policyEndDate)}</span>
-                        </td>
-                        <td className="px-4 py-3 text-sm font-semibold text-emerald-400">{formatCurrency(policy.premiumTarget)}</td>
-                        <td className="px-4 py-3 text-sm font-semibold text-cyan-400">{formatCurrency(policy.lastRespectBenefit)}</td>
-                        <td className="px-4 py-3 text-right">
-                          <button onClick={() => handleDeleteInsurancePolicy(policy.id)} className="text-xs font-semibold text-rose-400 underline hover:text-rose-300" type="button">Delete</button>
-                        </td>
+              <div className="space-y-3">
+                <div className="space-y-3 sm:hidden">
+                  {insurancePolicies.map((policy) => (
+                    <article key={policy.id} className="rounded-3xl border border-white/10 bg-black/15 p-4 shadow-xl shadow-black/20">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Insurance Provider</p>
+                          <h3 className="mt-1 break-words text-base font-black text-white">{policy.providerName}</h3>
+                          <p className="mt-1 break-words text-xs text-slate-400">{policy.policyNumber || 'No policy number'}</p>
+                        </div>
+                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${policy.status === 'Active' ? 'bg-emerald-400/10 text-emerald-300 border border-emerald-300/20' : policy.status === 'Pending' ? 'bg-amber-400/10 text-amber-300 border border-amber-300/20' : 'bg-rose-400/10 text-rose-300 border border-rose-300/20'}`}>
+                          {policy.status}
+                        </span>
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-2 gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Month</p>
+                          <p className="mt-1 text-sm text-slate-200">{policy.month}</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Premium</p>
+                          <p className="mt-1 text-sm font-semibold text-emerald-300">{formatCurrency(policy.premiumTarget)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Start</p>
+                          <p className="mt-1 text-sm text-slate-200">{formatCalendarDate(policy.policyStartDate)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">End</p>
+                          <p className="mt-1 text-sm text-slate-200">{formatCalendarDate(policy.policyEndDate)}</p>
+                        </div>
+                        <div className="col-span-2">
+                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Last Respect Benefit</p>
+                          <p className="mt-1 text-sm font-semibold text-cyan-300">{formatCurrency(policy.lastRespectBenefit)}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-3">
+                        <button onClick={() => handleDeleteInsurancePolicy(policy.id)} className="rounded-full border border-rose-300/30 bg-rose-400/10 px-3 py-2 text-xs font-bold text-rose-300" type="button">
+                          Delete Policy
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+
+                  {insurancePolicies.length === 0 && (
+                    <div className="rounded-3xl border border-white/10 bg-black/15 p-5 text-center text-sm text-slate-400">
+                      No insurance provider policies yet.
+                    </div>
+                  )}
+                </div>
+
+                <div className="hidden sm:block visible-horizontal-scrollbar w-full max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-cyan-300/20 bg-black/10 pb-5 shadow-inner shadow-black/20">
+                  <table className="min-w-[820px] divide-y divide-white/10 overflow-hidden text-sm">
+                    <thead>
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Provider</th>
+                        <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Month</th>
+                        <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Coverage Dates</th>
+                        <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Premium</th>
+                        <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Benefit</th>
+                        <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Actions</th>
                       </tr>
-                    ))}
-                    {insurancePolicies.length === 0 && (
-                      <tr><td colSpan={6} className="px-4 py-6 text-center text-sm text-slate-400">No insurance provider policies yet.</td></tr>
-                    )}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-white/10/50 [&_tr:hover]:bg-white/[0.035]">
+                      {insurancePolicies.map((policy) => (
+                        <tr key={policy.id}>
+                          <td className="px-4 py-3">
+                            <span className="block font-semibold text-white">{policy.providerName}</span>
+                            <span className="text-xs text-slate-400">{policy.policyNumber || 'No policy number'}</span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{policy.month}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300">
+                            <span className="block">Start: {formatCalendarDate(policy.policyStartDate)}</span>
+                            <span className="block text-xs text-slate-400">End: {formatCalendarDate(policy.policyEndDate)}</span>
+                          </td>
+                          <td className="px-4 py-3 text-sm font-semibold text-emerald-400">{formatCurrency(policy.premiumTarget)}</td>
+                          <td className="px-4 py-3 text-sm font-semibold text-cyan-400">{formatCurrency(policy.lastRespectBenefit)}</td>
+                          <td className="px-4 py-3 text-right">
+                            <button onClick={() => handleDeleteInsurancePolicy(policy.id)} className="text-xs font-semibold text-rose-400 underline hover:text-rose-300" type="button">Delete</button>
+                          </td>
+                        </tr>
+                      ))}
+                      {insurancePolicies.length === 0 && (
+                        <tr><td colSpan={6} className="px-4 py-6 text-center text-sm text-slate-400">No insurance provider policies yet.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             }
           />
@@ -3361,68 +3800,126 @@ export default function DashboardPage() {
           <Module
             title="Bereaved Family Cases"
             content={
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-white/10 overflow-hidden">
-                  <thead>
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Member / Family</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Month</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Case Date</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Collected</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Status</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Verification</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Verifier</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Notes</th>
-                      <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/10/50">
-                    {bereavedCases.map((caseItem) => (
-                      <tr key={caseItem.id}>
-                        <td className="px-4 py-3">
-                          <span className="block font-semibold text-white">{caseItem.memberName}</span>
-                          <span className="text-xs text-slate-400">{caseItem.familyContact || 'No family contact'}</span>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-slate-300">{caseItem.month}</td>
-                        <td className="px-4 py-3 text-sm text-slate-300">{formatCalendarDate(caseItem.caseDate)}</td>
-                        <td className="px-4 py-3 text-sm font-semibold text-emerald-400">
-                          {formatCurrency(caseItem.collectedAmount)}
-                          <span className="block text-xs text-slate-400">Target: {formatCurrency(caseItem.targetAmount)}</span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${caseItem.status === 'Closed' ? 'bg-emerald-400/10 text-emerald-300 border border-emerald-300/20' : 'bg-amber-400/10 text-amber-300 border border-amber-300/20'}`}>
-                            {caseItem.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex justify-end gap-3">
-                            {caseItem.status !== 'Closed' && <button onClick={() => markBereavedCaseClosed(caseItem.id)} className="text-xs font-semibold text-emerald-400 underline hover:text-emerald-300" type="button">Close</button>}
-                            <button onClick={() => handleDeleteBereavedCase(caseItem.id)} className="text-xs font-semibold text-rose-400 underline hover:text-rose-300" type="button">Delete</button>
+              <div className="space-y-3">
+                <div className="space-y-3 sm:hidden">
+                  {bereavedCases.map((caseItem) => (
+                    <article key={caseItem.id} className="rounded-3xl border border-white/10 bg-black/15 p-4 shadow-xl shadow-black/20">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Bereaved Case</p>
+                          <h3 className="mt-1 break-words text-base font-black text-white">{caseItem.memberName}</h3>
+                          <p className="mt-1 break-words text-xs text-slate-400">{caseItem.familyContact || 'No family contact'}</p>
+                        </div>
+                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${caseItem.status === 'Closed' ? 'bg-emerald-400/10 text-emerald-300 border border-emerald-300/20' : 'bg-amber-400/10 text-amber-300 border border-amber-300/20'}`}>
+                          {caseItem.status}
+                        </span>
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-2 gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Month</p>
+                          <p className="mt-1 text-sm text-slate-200">{caseItem.month}</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Case Date</p>
+                          <p className="mt-1 text-sm text-slate-200">{formatCalendarDate(caseItem.caseDate)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Collected</p>
+                          <p className="mt-1 text-sm font-semibold text-emerald-300">{formatCurrency(caseItem.collectedAmount)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Target</p>
+                          <p className="mt-1 text-sm font-semibold text-cyan-300">{formatCurrency(caseItem.targetAmount)}</p>
+                        </div>
+                        {caseItem.notes ? (
+                          <div className="col-span-2">
+                            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Notes</p>
+                            <p className="mt-1 break-words text-sm text-slate-200">{caseItem.notes}</p>
                           </div>
-                        </td>
+                        ) : null}
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-3">
+                        {caseItem.status !== 'Closed' && (
+                          <button onClick={() => markBereavedCaseClosed(caseItem.id)} className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-2 text-xs font-bold text-emerald-300" type="button">
+                            Close Case
+                          </button>
+                        )}
+                        <button onClick={() => handleDeleteBereavedCase(caseItem.id)} className="rounded-full border border-rose-300/30 bg-rose-400/10 px-3 py-2 text-xs font-bold text-rose-300" type="button">
+                          Delete Case
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+
+                  {bereavedCases.length === 0 && (
+                    <div className="rounded-3xl border border-white/10 bg-black/15 p-5 text-center text-sm text-slate-400">
+                      No bereaved cases yet.
+                    </div>
+                  )}
+                </div>
+
+                <div className="hidden sm:block visible-horizontal-scrollbar w-full max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-cyan-300/20 bg-black/10 pb-5 shadow-inner shadow-black/20">
+                  <table className="min-w-[820px] divide-y divide-white/10 overflow-hidden text-sm">
+                    <thead>
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Member / Family</th>
+                        <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Month</th>
+                        <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Case Date</th>
+                        <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Collected</th>
+                        <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Status</th>
+                        <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Actions</th>
                       </tr>
-                    ))}
-                    {bereavedCases.length === 0 && (
-                      <tr><td colSpan={6} className="px-4 py-6 text-center text-sm text-slate-400">No bereaved cases yet.</td></tr>
-                    )}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-white/10/50 [&_tr:hover]:bg-white/[0.035]">
+                      {bereavedCases.map((caseItem) => (
+                        <tr key={caseItem.id}>
+                          <td className="px-4 py-3">
+                            <span className="block font-semibold text-white">{caseItem.memberName}</span>
+                            <span className="text-xs text-slate-400">{caseItem.familyContact || 'No family contact'}</span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{caseItem.month}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{formatCalendarDate(caseItem.caseDate)}</td>
+                          <td className="px-4 py-3 text-sm font-semibold text-emerald-400">
+                            {formatCurrency(caseItem.collectedAmount)}
+                            <span className="block text-xs text-slate-400">Target: {formatCurrency(caseItem.targetAmount)}</span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${caseItem.status === 'Closed' ? 'bg-emerald-400/10 text-emerald-300 border border-emerald-300/20' : 'bg-amber-400/10 text-amber-300 border border-amber-300/20'}`}>
+                              {caseItem.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex justify-end gap-3">
+                              {caseItem.status !== 'Closed' && <button onClick={() => markBereavedCaseClosed(caseItem.id)} className="text-xs font-semibold text-emerald-400 underline hover:text-emerald-300" type="button">Close</button>}
+                              <button onClick={() => handleDeleteBereavedCase(caseItem.id)} className="text-xs font-semibold text-rose-400 underline hover:text-rose-300" type="button">Delete</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {bereavedCases.length === 0 && (
+                        <tr><td colSpan={6} className="px-4 py-6 text-center text-sm text-slate-400">No bereaved cases yet.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             }
           />
         </div>
 
-        <div className="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
+        <div className="mb-8 grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
           <div className="rounded-[2rem] border border-white/10 bg-white/[0.07] p-5 shadow-2xl shadow-black/20 ring-1 ring-white/5 backdrop-blur-2xl">
             <h3 className="mb-4 text-lg font-bold text-white">Add Group Member</h3>
             <form onSubmit={handleAddMemberSubmit} className="space-y-3.5">
-              <input type="text" required value={newMember.name} onChange={(event) => setNewMember((previous) => ({ ...previous, name: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Full name" />
-              <input type="email" value={newMember.email} onChange={(event) => setNewMember((previous) => ({ ...previous, email: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Email" />
-              <input type="text" value={newMember.contact} onChange={(event) => setNewMember((previous) => ({ ...previous, contact: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Contact phone" />
+              <input type="text" required value={newMember.name} onChange={(event) => setNewMember((previous) => ({ ...previous, name: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Full name" />
+              <input type="email" value={newMember.email} onChange={(event) => setNewMember((previous) => ({ ...previous, email: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Email" />
+              <input type="text" value={newMember.contact} onChange={(event) => setNewMember((previous) => ({ ...previous, contact: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Contact phone" />
               <label className="block text-xs font-semibold text-slate-300">Join Date</label>
-              <input type="date" value={newMember.joinDate} onChange={(event) => setNewMember((previous) => ({ ...previous, joinDate: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" />
-              <input type="number" value={newMember.insurancePaid} onChange={(event) => setNewMember((previous) => ({ ...previous, insurancePaid: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Insurance paid" />
-              <select value={newMember.status} onChange={(event) => setNewMember((previous) => ({ ...previous, status: event.target.value as PaymentStatus }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20">
+              <input type="date" value={newMember.joinDate} onChange={(event) => setNewMember((previous) => ({ ...previous, joinDate: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" />
+              <input type="number" value={newMember.insurancePaid} onChange={(event) => setNewMember((previous) => ({ ...previous, insurancePaid: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Insurance paid" />
+              <select value={newMember.status} onChange={(event) => setNewMember((previous) => ({ ...previous, status: event.target.value as PaymentStatus }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20">
                 <option value="Pending">Pending</option>
                 <option value="Paid">Paid</option>
               </select>
@@ -3433,23 +3930,23 @@ export default function DashboardPage() {
           <div className="rounded-[2rem] border border-white/10 bg-white/[0.07] p-5 shadow-2xl shadow-black/20 ring-1 ring-white/5 backdrop-blur-2xl">
             <h3 className="mb-4 text-lg font-bold text-white">Add Monthly Contributor</h3>
             <form onSubmit={handleAddContributionSubmit} className="space-y-3.5">
-              <select required value={newContribution.memberName} onChange={(event) => setNewContribution((previous) => ({ ...previous, memberName: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20">
+              <select required value={newContribution.memberName} onChange={(event) => setNewContribution((previous) => ({ ...previous, memberName: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20">
                 <option value="">Select member</option>
                 {members.map((member) => (
                   <option key={member.id} value={member.name}>{member.name}</option>
                 ))}
               </select>
-              <input type="text" required value={newContribution.month} onChange={(event) => setNewContribution((previous) => ({ ...previous, month: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Month" />
+              <input type="text" required value={newContribution.month} onChange={(event) => setNewContribution((previous) => ({ ...previous, month: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Month" />
               <label className="block text-xs font-semibold text-slate-300">Payment Date</label>
-              <input type="date" value={newContribution.paymentDate} onChange={(event) => setNewContribution((previous) => ({ ...previous, paymentDate: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" />
+              <input type="date" value={newContribution.paymentDate} onChange={(event) => setNewContribution((previous) => ({ ...previous, paymentDate: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" />
               <div className="grid grid-cols-2 gap-3">
-                <input type="number" min="0" value={newContribution.welfare} onChange={(event) => setNewContribution((previous) => ({ ...previous, welfare: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Welfare" />
-                <input type="number" min="0" value={newContribution.merryGoRound} onChange={(event) => setNewContribution((previous) => ({ ...previous, merryGoRound: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Merry-go-round" />
-                <input type="number" min="0" value={newContribution.insurance} onChange={(event) => setNewContribution((previous) => ({ ...previous, insurance: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Insurance" />
-                <input type="number" min="0" value={newContribution.bereavedFamily} onChange={(event) => setNewContribution((previous) => ({ ...previous, bereavedFamily: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Bereaved family" />
+                <input type="number" min="0" value={newContribution.welfare} onChange={(event) => setNewContribution((previous) => ({ ...previous, welfare: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Welfare" />
+                <input type="number" min="0" value={newContribution.merryGoRound} onChange={(event) => setNewContribution((previous) => ({ ...previous, merryGoRound: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Merry-go-round" />
+                <input type="number" min="0" value={newContribution.insurance} onChange={(event) => setNewContribution((previous) => ({ ...previous, insurance: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Insurance" />
+                <input type="number" min="0" value={newContribution.bereavedFamily} onChange={(event) => setNewContribution((previous) => ({ ...previous, bereavedFamily: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Bereaved family" />
               </div>
-              <input type="number" min="0" value={newContribution.paidAmount} onChange={(event) => setNewContribution((previous) => ({ ...previous, paidAmount: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Paid amount / partial payment" />
-              <select value={newContribution.paymentStatus} onChange={(event) => setNewContribution((previous) => ({ ...previous, paymentStatus: event.target.value as PaymentStatus }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20">
+              <input type="number" min="0" value={newContribution.paidAmount} onChange={(event) => setNewContribution((previous) => ({ ...previous, paidAmount: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Paid amount / partial payment" />
+              <select value={newContribution.paymentStatus} onChange={(event) => setNewContribution((previous) => ({ ...previous, paymentStatus: event.target.value as PaymentStatus }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20">
                 <option value="Pending">Pending</option>
                 <option value="Paid">Paid</option>
               </select>
@@ -3464,16 +3961,16 @@ export default function DashboardPage() {
             <h3 className="mb-2 text-lg font-bold text-white">Generate Monthly Rows</h3>
             <p className="mb-4 text-xs text-slate-400">Create one contribution row for every current member, skipping members who already have a row for the selected month.</p>
             <form onSubmit={handleGenerateMonthlyRows} className="space-y-3.5">
-              <input type="text" required value={generationMonth} onChange={(event) => setGenerationMonth(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Month e.g. July" />
+              <input type="text" required value={generationMonth} onChange={(event) => setGenerationMonth(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Month e.g. July" />
               <label className="block text-xs font-semibold text-slate-300">Default Payment Date</label>
-              <input type="date" value={monthlyGenerationDefaults.paymentDate} onChange={(event) => setMonthlyGenerationDefaults((previous) => ({ ...previous, paymentDate: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" />
+              <input type="date" value={monthlyGenerationDefaults.paymentDate} onChange={(event) => setMonthlyGenerationDefaults((previous) => ({ ...previous, paymentDate: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" />
               <div className="grid grid-cols-2 gap-3">
-                <input type="number" min="0" value={monthlyGenerationDefaults.welfare} onChange={(event) => setMonthlyGenerationDefaults((previous) => ({ ...previous, welfare: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Default welfare" />
-                <input type="number" min="0" value={monthlyGenerationDefaults.merryGoRound} onChange={(event) => setMonthlyGenerationDefaults((previous) => ({ ...previous, merryGoRound: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Default merry-go-round" />
-                <input type="number" min="0" value={monthlyGenerationDefaults.insurance} onChange={(event) => setMonthlyGenerationDefaults((previous) => ({ ...previous, insurance: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Default insurance" />
-                <input type="number" min="0" value={monthlyGenerationDefaults.bereavedFamily} onChange={(event) => setMonthlyGenerationDefaults((previous) => ({ ...previous, bereavedFamily: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Default bereaved" />
+                <input type="number" min="0" value={monthlyGenerationDefaults.welfare} onChange={(event) => setMonthlyGenerationDefaults((previous) => ({ ...previous, welfare: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Default welfare" />
+                <input type="number" min="0" value={monthlyGenerationDefaults.merryGoRound} onChange={(event) => setMonthlyGenerationDefaults((previous) => ({ ...previous, merryGoRound: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Default merry-go-round" />
+                <input type="number" min="0" value={monthlyGenerationDefaults.insurance} onChange={(event) => setMonthlyGenerationDefaults((previous) => ({ ...previous, insurance: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Default insurance" />
+                <input type="number" min="0" value={monthlyGenerationDefaults.bereavedFamily} onChange={(event) => setMonthlyGenerationDefaults((previous) => ({ ...previous, bereavedFamily: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Default bereaved" />
               </div>
-              <select value={monthlyGenerationDefaults.paymentStatus} onChange={(event) => setMonthlyGenerationDefaults((previous) => ({ ...previous, paymentStatus: event.target.value as PaymentStatus }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20">
+              <select value={monthlyGenerationDefaults.paymentStatus} onChange={(event) => setMonthlyGenerationDefaults((previous) => ({ ...previous, paymentStatus: event.target.value as PaymentStatus }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20">
                 <option value="Pending">Pending</option>
                 <option value="Paid">Paid</option>
               </select>
@@ -3488,12 +3985,12 @@ export default function DashboardPage() {
           <div className="rounded-[2rem] border border-white/10 bg-white/[0.07] p-5 shadow-2xl shadow-black/20 ring-1 ring-white/5 backdrop-blur-2xl">
             <h3 className="mb-4 text-lg font-bold text-white">Schedule Round</h3>
             <form onSubmit={handleAddRoundSubmit} className="space-y-3.5">
-              <input type="number" required value={newRound.roundNumber} onChange={(event) => setNewRound((previous) => ({ ...previous, roundNumber: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Round number" />
-              <input type="text" required value={newRound.recipientName} onChange={(event) => setNewRound((previous) => ({ ...previous, recipientName: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Recipient name" />
+              <input type="number" required value={newRound.roundNumber} onChange={(event) => setNewRound((previous) => ({ ...previous, roundNumber: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Round number" />
+              <input type="text" required value={newRound.recipientName} onChange={(event) => setNewRound((previous) => ({ ...previous, recipientName: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Recipient name" />
               <label className="block text-xs font-semibold text-slate-300">Payout Date</label>
-              <input type="date" value={newRound.payoutDate} onChange={(event) => setNewRound((previous) => ({ ...previous, payoutDate: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" />
-              <input type="number" value={newRound.payoutAmount} onChange={(event) => setNewRound((previous) => ({ ...previous, payoutAmount: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Payout amount" />
-              <select value={newRound.status} onChange={(event) => setNewRound((previous) => ({ ...previous, status: event.target.value as RoundStatus }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20">
+              <input type="date" value={newRound.payoutDate} onChange={(event) => setNewRound((previous) => ({ ...previous, payoutDate: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" />
+              <input type="number" value={newRound.payoutAmount} onChange={(event) => setNewRound((previous) => ({ ...previous, payoutAmount: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Payout amount" />
+              <select value={newRound.status} onChange={(event) => setNewRound((previous) => ({ ...previous, status: event.target.value as RoundStatus }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20">
                 <option value="Upcoming">Upcoming</option>
                 <option value="Current">Current</option>
                 <option value="Completed">Completed</option>
@@ -3505,15 +4002,15 @@ export default function DashboardPage() {
           <div className="rounded-[2rem] border border-white/10 bg-white/[0.07] p-5 shadow-2xl shadow-black/20 ring-1 ring-white/5 backdrop-blur-2xl">
             <h3 className="mb-4 text-lg font-bold text-white">Add Insurance Provider</h3>
             <form onSubmit={handleAddInsurancePolicySubmit} className="space-y-3.5">
-              <input type="text" required value={newInsurancePolicy.providerName} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, providerName: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Provider name" />
-              <input type="text" value={newInsurancePolicy.policyNumber} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, policyNumber: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Policy number" />
+              <input type="text" required value={newInsurancePolicy.providerName} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, providerName: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Provider name" />
+              <input type="text" value={newInsurancePolicy.policyNumber} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, policyNumber: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Policy number" />
               <label className="block text-xs font-semibold text-slate-300">Policy Start Date</label>
-              <input type="date" value={newInsurancePolicy.policyStartDate} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, policyStartDate: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" />
+              <input type="date" value={newInsurancePolicy.policyStartDate} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, policyStartDate: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" />
               <label className="block text-xs font-semibold text-slate-300">Policy End Date</label>
-              <input type="date" value={newInsurancePolicy.policyEndDate} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, policyEndDate: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" />
-              <input type="number" value={newInsurancePolicy.premiumTarget} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, premiumTarget: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Premium target" />
-              <input type="number" value={newInsurancePolicy.providerContribution} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, providerContribution: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Provider contribution" />
-              <input type="number" value={newInsurancePolicy.lastRespectBenefit} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, lastRespectBenefit: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Last respect benefit" />
+              <input type="date" value={newInsurancePolicy.policyEndDate} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, policyEndDate: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" />
+              <input type="number" value={newInsurancePolicy.premiumTarget} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, premiumTarget: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Premium target" />
+              <input type="number" value={newInsurancePolicy.providerContribution} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, providerContribution: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Provider contribution" />
+              <input type="number" value={newInsurancePolicy.lastRespectBenefit} onChange={(event) => setNewInsurancePolicy((previous) => ({ ...previous, lastRespectBenefit: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Last respect benefit" />
               <button type="submit" disabled={submittingInsurance || !canManageMembers} className="w-full rounded-2xl border border-cyan-300/20 bg-cyan-400/20 py-2 text-sm font-semibold text-cyan-50 shadow-lg shadow-cyan-950/20 backdrop-blur-xl transition hover:bg-cyan-400/30 disabled:opacity-60">{submittingInsurance ? 'Saving...' : 'Add Provider'}</button>
             </form>
           </div>
@@ -3521,13 +4018,13 @@ export default function DashboardPage() {
           <div className="rounded-[2rem] border border-white/10 bg-white/[0.07] p-5 shadow-2xl shadow-black/20 ring-1 ring-white/5 backdrop-blur-2xl">
             <h3 className="mb-4 text-lg font-bold text-white">Add Bereaved Case</h3>
             <form onSubmit={handleAddBereavedCaseSubmit} className="space-y-3.5">
-              <input type="text" required value={newBereavedCase.memberName} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, memberName: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Bereaved member name" />
-              <input type="text" value={newBereavedCase.familyContact} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, familyContact: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Family contact" />
+              <input type="text" required value={newBereavedCase.memberName} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, memberName: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Bereaved member name" />
+              <input type="text" value={newBereavedCase.familyContact} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, familyContact: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Family contact" />
               <label className="block text-xs font-semibold text-slate-300">Case Date</label>
-              <input type="date" value={newBereavedCase.caseDate} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, caseDate: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" />
-              <input type="number" value={newBereavedCase.targetAmount} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, targetAmount: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Target amount" />
-              <input type="number" value={newBereavedCase.collectedAmount} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, collectedAmount: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Collected amount" />
-              <textarea value={newBereavedCase.notes} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, notes: event.target.value }))} className="min-h-20 w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Notes" />
+              <input type="date" value={newBereavedCase.caseDate} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, caseDate: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" />
+              <input type="number" value={newBereavedCase.targetAmount} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, targetAmount: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Target amount" />
+              <input type="number" value={newBereavedCase.collectedAmount} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, collectedAmount: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Collected amount" />
+              <textarea value={newBereavedCase.notes} onChange={(event) => setNewBereavedCase((previous) => ({ ...previous, notes: event.target.value }))} className="min-h-20 w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20" placeholder="Notes" />
               <button type="submit" disabled={submittingBereavedCase || !canManageMembers} className="w-full rounded-2xl border border-rose-300/20 bg-rose-400/20 py-2 text-sm font-semibold text-rose-50 shadow-lg shadow-rose-950/20 backdrop-blur-xl transition hover:bg-rose-400/30 disabled:opacity-60">{submittingBereavedCase ? 'Saving...' : 'Add Case'}</button>
             </form>
           </div>
@@ -3536,8 +4033,9 @@ export default function DashboardPage() {
         <Module
           title="Member Tracker"
           content={
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-white/10 overflow-hidden">
+            <div className="visible-horizontal-scrollbar w-full max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-cyan-300/20 bg-black/10 pb-5 shadow-inner shadow-black/20">
+              <div className="table-scroll-hint sm:hidden">Swipe table ↔</div>
+              <table className="min-w-[880px] divide-y divide-white/10 overflow-hidden text-sm">
                 <thead>
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Identity Details</th>
@@ -3547,7 +4045,7 @@ export default function DashboardPage() {
                     <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/10/50">
+                <tbody className="divide-y divide-white/10/50 [&_tr:hover]:bg-white/[0.035]">
                   {members.map((member) => {
                     const isEditing = editingMemberId === member.id;
 
@@ -3622,6 +4120,13 @@ export default function DashboardPage() {
           }
         />
       </main>
+
+      <div className="fixed inset-x-3 bottom-3 z-40 grid grid-cols-4 gap-2 rounded-[1.65rem] border border-white/10 bg-slate-950/82 p-2 shadow-2xl shadow-black/40 ring-1 ring-white/5 backdrop-blur-2xl sm:hidden">
+        <a href="#access-control" className="rounded-2xl bg-white/[0.08] px-2 py-2 text-center text-[11px] font-black text-slate-100">Home</a>
+        <a href="#monthly-contributors" className="rounded-2xl bg-cyan-400/15 px-2 py-2 text-center text-[11px] font-black text-cyan-100">Money</a>
+        <a href="#member-statement" className="rounded-2xl bg-white/[0.08] px-2 py-2 text-center text-[11px] font-black text-slate-100">Statement</a>
+        <a href="#app-top" className="rounded-2xl bg-white/[0.08] px-2 py-2 text-center text-[11px] font-black text-slate-100">Top</a>
+      </div>
     </div>
   );
 }
