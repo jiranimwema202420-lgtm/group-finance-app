@@ -179,6 +179,18 @@ interface Member {
   joinDate: string;
 }
 
+interface MemberImportPreviewRow {
+  rowNumber: number;
+  name: string;
+  email: string;
+  contact: string;
+  insurancePaid: number;
+  status: PaymentStatus;
+  joinDate: string;
+  error?: string;
+  duplicate?: boolean;
+}
+
 interface MonthlyContribution {
   id: string;
   memberName: string;
@@ -417,6 +429,58 @@ const formatCalendarDate = (value?: string) => {
 
 const toMoneyNumber = (value: unknown) => Number(value) || 0;
 
+const parseDelimitedMemberLine = (line: string) => {
+  const trimmedLine = line.trim();
+
+  if (trimmedLine.includes('\t')) {
+    return trimmedLine.split('\t').map((cell) => cell.trim());
+  }
+
+  const cells: string[] = [];
+  let currentCell = '';
+  let insideQuotes = false;
+
+  for (let index = 0; index < trimmedLine.length; index += 1) {
+    const character = trimmedLine[index];
+
+    if (character === '"') {
+      const nextCharacter = trimmedLine[index + 1];
+
+      if (insideQuotes && nextCharacter === '"') {
+        currentCell += '"';
+        index += 1;
+      } else {
+        insideQuotes = !insideQuotes;
+      }
+    } else if (character === ',' && !insideQuotes) {
+      cells.push(currentCell.trim());
+      currentCell = '';
+    } else {
+      currentCell += character;
+    }
+  }
+
+  cells.push(currentCell.trim());
+
+  return cells;
+};
+
+const normalizeImportHeader = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
+
+const normalizeMemberKey = (value: string) => value.trim().toLowerCase();
+
+const normalizeImportedPaymentStatus = (value: string): PaymentStatus => {
+  const normalizedValue = value.trim().toLowerCase();
+
+  return normalizedValue === 'paid' || normalizedValue === 'yes' || normalizedValue === 'y' || normalizedValue === 'complete'
+    ? 'Paid'
+    : 'Pending';
+};
+
 const getContributionTotal = (contribution: MonthlyContribution) => {
   const splitTotal =
     toMoneyNumber(contribution.welfare) +
@@ -556,6 +620,11 @@ export default function DashboardPage() {
     status: 'Pending' as PaymentStatus,
     joinDate: todayIso(),
   });
+
+  const [memberImportText, setMemberImportText] = useState('');
+  const [memberImportFileName, setMemberImportFileName] = useState('');
+  const [memberImportPreview, setMemberImportPreview] = useState<MemberImportPreviewRow[]>([]);
+  const [importingMembers, setImportingMembers] = useState(false);
 
   const [newContribution, setNewContribution] = useState({
     memberName: '',
@@ -1274,6 +1343,182 @@ export default function DashboardPage() {
     } catch (error) {
       console.error('Failed to remove user role:', error);
       notify('Failed to remove user role.', 'error');
+    }
+  };
+
+  const buildMemberImportPreview = (rawText: string): MemberImportPreviewRow[] => {
+    const lines = rawText
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (lines.length === 0) return [];
+
+    const firstRowCells = parseDelimitedMemberLine(lines[0]);
+    const normalizedHeaders = firstRowCells.map(normalizeImportHeader);
+    const hasHeaderRow = normalizedHeaders.some((header) =>
+      ['name', 'fullname', 'membername', 'member', 'email', 'phone', 'contact'].includes(header)
+    );
+
+    const headerIndex = (aliases: string[]) => {
+      const aliasSet = new Set(aliases.map(normalizeImportHeader));
+      return normalizedHeaders.findIndex((header) => aliasSet.has(header));
+    };
+
+    const nameIndex = headerIndex(['name', 'full name', 'member name', 'member']);
+    const emailIndex = headerIndex(['email', 'email address']);
+    const contactIndex = headerIndex(['contact', 'phone', 'phone number', 'mobile', 'telephone']);
+    const insurancePaidIndex = headerIndex(['insurance paid', 'insurancePaid', 'insurance', 'amount']);
+    const statusIndex = headerIndex(['status', 'payment status', 'insurance status']);
+    const joinDateIndex = headerIndex(['join date', 'joinDate', 'date joined', 'joined']);
+
+    const existingNameKeys = new Set(members.map((member) => normalizeMemberKey(member.name)).filter(Boolean));
+    const existingEmailKeys = new Set(members.map((member) => normalizeMemberKey(member.email)).filter(Boolean));
+    const importedNameKeys = new Set<string>();
+    const importedEmailKeys = new Set<string>();
+
+    return lines.slice(hasHeaderRow ? 1 : 0).map((line, index) => {
+      const rowNumber = index + (hasHeaderRow ? 2 : 1);
+      const cells = parseDelimitedMemberLine(line);
+
+      const valueFromHeader = (selectedIndex: number, fallbackIndex: number) =>
+        selectedIndex >= 0 ? cells[selectedIndex] || '' : cells[fallbackIndex] || '';
+
+      const name = valueFromHeader(nameIndex, 0).trim();
+      const email = valueFromHeader(emailIndex, 1).trim();
+      const contact = valueFromHeader(contactIndex, 2).trim();
+      const insurancePaid = toMoneyNumber(valueFromHeader(insurancePaidIndex, 3));
+      const status = normalizeImportedPaymentStatus(valueFromHeader(statusIndex, 4));
+      const joinDate = valueFromHeader(joinDateIndex, 5) || todayIso();
+
+      const nameKey = normalizeMemberKey(name);
+      const emailKey = normalizeMemberKey(email);
+      const duplicate =
+        !!nameKey &&
+        (existingNameKeys.has(nameKey) ||
+          importedNameKeys.has(nameKey) ||
+          (!!emailKey && (existingEmailKeys.has(emailKey) || importedEmailKeys.has(emailKey))));
+
+      let error = '';
+
+      if (!name) {
+        error = 'Missing member name';
+      } else if (duplicate) {
+        error = 'Duplicate member';
+      }
+
+      if (nameKey) importedNameKeys.add(nameKey);
+      if (emailKey) importedEmailKeys.add(emailKey);
+
+      return {
+        rowNumber,
+        name,
+        email,
+        contact,
+        insurancePaid,
+        status,
+        joinDate,
+        duplicate,
+        error,
+      };
+    });
+  };
+
+  const handlePreviewMemberImport = () => {
+    const previewRows = buildMemberImportPreview(memberImportText);
+    setMemberImportPreview(previewRows);
+
+    if (previewRows.length === 0) {
+      notify('Paste member rows or upload a CSV file first.', 'warning');
+      return;
+    }
+
+    const validRows = previewRows.filter((row) => !row.error);
+    const errorRows = previewRows.length - validRows.length;
+    notify(`Preview ready: ${validRows.length} valid row(s), ${errorRows} row(s) need attention.`, errorRows > 0 ? 'warning' : 'success');
+  };
+
+  const handleMemberImportFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    try {
+      const fileText = await file.text();
+      setMemberImportText(fileText);
+      setMemberImportFileName(file.name);
+      const previewRows = buildMemberImportPreview(fileText);
+      setMemberImportPreview(previewRows);
+      notify(`Loaded ${file.name}. Review the preview before importing.`, 'success');
+    } catch (error) {
+      console.error('Failed to read member import file:', error);
+      notify('Failed to read the selected file.', 'error');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const handleClearMemberImport = () => {
+    setMemberImportText('');
+    setMemberImportFileName('');
+    setMemberImportPreview([]);
+  };
+
+  const handleImportMembers = async () => {
+    if (!requireRole('Admin', 'import members')) return;
+
+    const previewRows = memberImportPreview.length > 0 ? memberImportPreview : buildMemberImportPreview(memberImportText);
+    const validRows = previewRows.filter((row) => !row.error);
+
+    setMemberImportPreview(previewRows);
+
+    if (validRows.length === 0) {
+      notify('No valid members to import. Check the preview for missing names or duplicates.', 'warning');
+      return;
+    }
+
+    setImportingMembers(true);
+
+    try {
+      const createdMembers: Member[] = await Promise.all(
+        validRows.map(async (row) => {
+          const memberData = {
+            name: row.name.trim(),
+            email: row.email.trim(),
+            contact: row.contact.trim(),
+            insurancePaid: row.insurancePaid,
+            status: row.status,
+            joinDate: row.joinDate,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+
+          const docRef = await addDoc(collection(db, 'groups', CURRENT_GROUP_ID, 'members'), memberData);
+
+          return {
+            id: docRef.id,
+            ...memberData,
+          };
+        })
+      );
+
+      setMembers((previous) => [...previous, ...createdMembers].sort((firstMember, secondMember) => firstMember.name.localeCompare(secondMember.name)));
+
+      await writeAuditLog({
+        action: 'Import Members',
+        module: 'Members',
+        actor: actorName,
+        targetName: `${createdMembers.length} member(s)`,
+        details: `Imported ${createdMembers.length} member record(s).`,
+      });
+
+      handleClearMemberImport();
+      notify(`Imported ${createdMembers.length} member(s).`, 'success');
+    } catch (error) {
+      console.error('Failed to import members:', error);
+      notify('Failed to import members.', 'error');
+    } finally {
+      setImportingMembers(false);
     }
   };
 
@@ -3925,6 +4170,98 @@ export default function DashboardPage() {
               </select>
               <button type="submit" disabled={submittingMember || !canManageMembers} className="w-full rounded-2xl border border-cyan-300/20 bg-cyan-400/20 py-2 text-sm font-semibold text-cyan-50 shadow-lg shadow-cyan-950/20 backdrop-blur-xl transition hover:bg-cyan-400/30 disabled:opacity-60">{submittingMember ? 'Saving...' : 'Add Member'}</button>
             </form>
+          </div>
+
+          <div className="rounded-[2rem] border border-white/10 bg-white/[0.07] p-5 shadow-2xl shadow-black/20 ring-1 ring-white/5 backdrop-blur-2xl">
+            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-white">Import Members</h3>
+                <p className="mt-1 text-xs leading-5 text-slate-400">Upload CSV/TXT or paste rows. Supported columns: name, email, contact, insurancePaid, status, joinDate.</p>
+              </div>
+              <span className="w-fit rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.16em] text-cyan-200">Bulk Add</span>
+            </div>
+
+            <div className="space-y-3.5">
+              <label className="block rounded-2xl border border-dashed border-cyan-300/30 bg-cyan-400/10 px-4 py-4 text-center text-sm font-bold text-cyan-100 transition hover:bg-cyan-400/15">
+                <input type="file" accept=".csv,.txt,text/csv,text/plain" onChange={handleMemberImportFileChange} disabled={!canManageMembers || importingMembers} className="hidden" />
+                {memberImportFileName ? `Loaded: ${memberImportFileName}` : 'Upload CSV or TXT file'}
+              </label>
+
+              <textarea
+                value={memberImportText}
+                onChange={(event) => {
+                  setMemberImportText(event.target.value);
+                  setMemberImportPreview([]);
+                }}
+                disabled={!canManageMembers || importingMembers}
+                className="min-h-36 w-full rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white shadow-inner shadow-black/10 backdrop-blur-xl placeholder:text-slate-500 focus:border-cyan-300/60 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-cyan-300/20"
+                placeholder={'Example:\nname,email,contact,insurancePaid,status,joinDate\nJane Wanjiku,jane@email.com,0712345678,750,Paid,2026-06-01\nPeter Mwangi,peter@email.com,0799999999,0,Pending,2026-06-01'}
+              />
+
+              <div className="grid grid-cols-2 gap-3">
+                <button type="button" onClick={handlePreviewMemberImport} disabled={!canManageMembers || importingMembers || !memberImportText.trim()} className="rounded-2xl border border-cyan-300/20 bg-cyan-400/20 px-4 py-3 text-sm font-semibold text-cyan-50 shadow-lg shadow-cyan-950/20 backdrop-blur-xl transition hover:bg-cyan-400/30 disabled:opacity-60">
+                  Preview
+                </button>
+                <button type="button" onClick={handleClearMemberImport} disabled={importingMembers || (!memberImportText && memberImportPreview.length === 0)} className="rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-3 text-sm font-semibold text-slate-100 shadow-lg shadow-black/10 backdrop-blur-xl transition hover:bg-white/[0.14] disabled:opacity-60">
+                  Clear
+                </button>
+              </div>
+
+              {memberImportPreview.length > 0 ? (
+                <div className="space-y-3 rounded-3xl border border-white/10 bg-black/15 p-3">
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="rounded-2xl border border-emerald-300/20 bg-emerald-400/10 p-3">
+                      <p className="text-lg font-black text-emerald-200">{memberImportPreview.filter((row) => !row.error).length}</p>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-100/80">Valid</p>
+                    </div>
+                    <div className="rounded-2xl border border-amber-300/20 bg-amber-400/10 p-3">
+                      <p className="text-lg font-black text-amber-200">{memberImportPreview.filter((row) => row.duplicate).length}</p>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-amber-100/80">Duplicates</p>
+                    </div>
+                    <div className="rounded-2xl border border-rose-300/20 bg-rose-400/10 p-3">
+                      <p className="text-lg font-black text-rose-200">{memberImportPreview.filter((row) => row.error && !row.duplicate).length}</p>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-rose-100/80">Issues</p>
+                    </div>
+                  </div>
+
+                  <div className="visible-horizontal-scrollbar max-h-72 w-full max-w-full overflow-x-auto overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/30 pb-3">
+                    <table className="min-w-[760px] divide-y divide-white/10 text-xs">
+                      <thead>
+                        <tr>
+                          <th className="px-3 py-2 text-left font-black uppercase tracking-[0.16em] text-slate-300">Row</th>
+                          <th className="px-3 py-2 text-left font-black uppercase tracking-[0.16em] text-slate-300">Name</th>
+                          <th className="px-3 py-2 text-left font-black uppercase tracking-[0.16em] text-slate-300">Contact</th>
+                          <th className="px-3 py-2 text-left font-black uppercase tracking-[0.16em] text-slate-300">Insurance</th>
+                          <th className="px-3 py-2 text-left font-black uppercase tracking-[0.16em] text-slate-300">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/10">
+                        {memberImportPreview.slice(0, 8).map((row) => (
+                          <tr key={`${row.rowNumber}-${row.name}`} className={row.error ? 'bg-rose-400/5' : 'bg-emerald-400/5'}>
+                            <td className="px-3 py-2 font-bold text-slate-300">{row.rowNumber}</td>
+                            <td className="px-3 py-2">
+                              <span className="block font-semibold text-white">{row.name || 'Missing name'}</span>
+                              <span className={row.error ? 'text-rose-300' : 'text-slate-400'}>{row.error || row.email || 'No email'}</span>
+                            </td>
+                            <td className="px-3 py-2 text-slate-300">{row.contact || '—'}</td>
+                            <td className="px-3 py-2 text-emerald-300">{formatCurrency(row.insurancePaid)}</td>
+                            <td className="px-3 py-2 text-slate-300">{row.status}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {memberImportPreview.length > 8 ? (
+                    <p className="text-xs text-slate-400">Showing first 8 rows only. All valid rows will be imported.</p>
+                  ) : null}
+
+                  <button type="button" onClick={handleImportMembers} disabled={!canManageMembers || importingMembers || memberImportPreview.filter((row) => !row.error).length === 0} className="w-full rounded-2xl border border-emerald-300/20 bg-emerald-400/20 px-4 py-3 text-sm font-bold text-emerald-50 shadow-lg shadow-emerald-950/20 backdrop-blur-xl transition hover:bg-emerald-400/30 disabled:opacity-60">
+                    {importingMembers ? 'Importing...' : `Import ${memberImportPreview.filter((row) => !row.error).length} Valid Member(s)`}
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
 
           <div className="rounded-[2rem] border border-white/10 bg-white/[0.07] p-5 shadow-2xl shadow-black/20 ring-1 ring-white/5 backdrop-blur-2xl">
