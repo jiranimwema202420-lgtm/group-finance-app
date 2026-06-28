@@ -6,9 +6,13 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function userEmail() {
+      return request.auth.token.email;
+    }
+
     function isBootstrapAdmin() {
       return signedIn()
-        && request.auth.token.email == 'jiranimwema202420@gmail.com';
+        && userEmail() == 'jiranimwema202420@gmail.com';
     }
 
     function myGlobalMembershipId() {
@@ -33,41 +37,46 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/groups/$(groupId)/memberships/$(request.auth.uid));
     }
 
+    function roleIsMember(role) {
+      return role in [
+        'ADMIN',
+        'Admin',
+        'admin',
+        'TREASURER',
+        'Treasurer',
+        'treasurer',
+        'CHAIRPERSON',
+        'Chairperson',
+        'chairperson',
+        'MEMBER',
+        'Member',
+        'member'
+      ];
+    }
+
+    function roleIsAdmin(role) {
+      return role in ['ADMIN', 'Admin', 'admin'];
+    }
+
+    function roleIsTreasurer(role) {
+      return role in ['TREASURER', 'Treasurer', 'treasurer'];
+    }
+
+    function statusIsActive(status) {
+      return !(status in ['disabled', 'Disabled', 'DISABLED', 'inactive', 'Inactive', 'INACTIVE', 'suspended', 'Suspended', 'SUSPENDED']);
+    }
+
     function isGlobalGroupMember(groupId) {
       return hasMyGlobalMembership()
         && myGlobalMembership().data.groupId == groupId
-        && myGlobalMembership().data.role in [
-          'ADMIN',
-          'Admin',
-          'admin',
-          'TREASURER',
-          'Treasurer',
-          'treasurer',
-          'CHAIRPERSON',
-          'Chairperson',
-          'chairperson',
-          'MEMBER',
-          'Member',
-          'member'
-        ];
+        && roleIsMember(myGlobalMembership().data.role)
+        && statusIsActive(myGlobalMembership().data.status);
     }
 
     function isGroupMember(groupId) {
       return hasMyGroupMembership(groupId)
-        && myGroupMembership(groupId).data.role in [
-          'ADMIN',
-          'Admin',
-          'admin',
-          'TREASURER',
-          'Treasurer',
-          'treasurer',
-          'CHAIRPERSON',
-          'Chairperson',
-          'chairperson',
-          'MEMBER',
-          'Member',
-          'member'
-        ];
+        && roleIsMember(myGroupMembership(groupId).data.role)
+        && statusIsActive(myGroupMembership(groupId).data.status);
     }
 
     function isMember(groupId) {
@@ -78,13 +87,15 @@ service cloud.firestore {
 
     function isGroupAdmin(groupId) {
       return hasMyGroupMembership(groupId)
-        && myGroupMembership(groupId).data.role in ['ADMIN', 'Admin', 'admin'];
+        && roleIsAdmin(myGroupMembership(groupId).data.role)
+        && statusIsActive(myGroupMembership(groupId).data.status);
     }
 
     function isGlobalAdmin(groupId) {
       return hasMyGlobalMembership()
         && myGlobalMembership().data.groupId == groupId
-        && myGlobalMembership().data.role in ['ADMIN', 'Admin', 'admin'];
+        && roleIsAdmin(myGlobalMembership().data.role)
+        && statusIsActive(myGlobalMembership().data.status);
     }
 
     function isAdmin(groupId) {
@@ -95,13 +106,15 @@ service cloud.firestore {
 
     function isGroupTreasurer(groupId) {
       return hasMyGroupMembership(groupId)
-        && myGroupMembership(groupId).data.role in ['TREASURER', 'Treasurer', 'treasurer'];
+        && roleIsTreasurer(myGroupMembership(groupId).data.role)
+        && statusIsActive(myGroupMembership(groupId).data.status);
     }
 
     function isGlobalTreasurer(groupId) {
       return hasMyGlobalMembership()
         && myGlobalMembership().data.groupId == groupId
-        && myGlobalMembership().data.role in ['TREASURER', 'Treasurer', 'treasurer'];
+        && roleIsTreasurer(myGlobalMembership().data.role)
+        && statusIsActive(myGlobalMembership().data.status);
     }
 
     function isTreasurer(groupId) {
@@ -115,20 +128,7 @@ service cloud.firestore {
 
     function hasValidMembershipPayload(groupId) {
       return request.resource.data.groupId == groupId
-        && request.resource.data.role in [
-          'ADMIN',
-          'Admin',
-          'admin',
-          'TREASURER',
-          'Treasurer',
-          'treasurer',
-          'CHAIRPERSON',
-          'Chairperson',
-          'chairperson',
-          'MEMBER',
-          'Member',
-          'member'
-        ];
+        && roleIsMember(request.resource.data.role);
     }
 
     match /groups/{groupId} {
@@ -170,8 +170,14 @@ service cloud.firestore {
       }
 
       match /accessRequests/{requestId} {
-        allow read: if isAdmin(groupId)
-          || (signedIn() && resource.data.uid == request.auth.uid);
+        // Important fix:
+        // A signed-in user must be allowed to read their own request document path
+        // even before the document exists, otherwise getDoc(accessRequests/{uid})
+        // throws "Missing or insufficient permissions".
+        allow get: if isAdmin(groupId)
+          || (signedIn() && requestId == request.auth.uid);
+
+        allow list: if isAdmin(groupId);
 
         allow create: if signedIn()
           && requestId == request.auth.uid
@@ -193,19 +199,28 @@ service cloud.firestore {
       }
 
       match /memberships/{userId} {
-        allow read: if signedIn() && (userId == request.auth.uid || isAdmin(groupId));
+        allow get: if signedIn() && (userId == request.auth.uid || isAdmin(groupId));
+        allow list: if isAdmin(groupId);
         allow create, update: if isAdmin(groupId) && hasValidMembershipPayload(groupId);
         allow delete: if isAdmin(groupId);
+      }
+
+      // Optional protected location for future private member data.
+      // Use this if you later split public member records from private contact/personal data.
+      match /memberPrivateData/{memberId} {
+        allow read, write: if isFinanceOfficial(groupId);
       }
     }
 
     match /memberships/{membershipId} {
-      allow read: if signedIn()
+      allow get: if signedIn()
         && (
           membershipId == myGlobalMembershipId()
           || isBootstrapAdmin()
           || isAdmin(resource.data.groupId)
         );
+
+      allow list: if isBootstrapAdmin();
 
       allow create: if signedIn()
         && (
