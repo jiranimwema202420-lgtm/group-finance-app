@@ -1,6 +1,21 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import { initializeApp, getApp, getApps } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
 import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, getFirestore, setDoc, updateDoc } from 'firebase/firestore';
@@ -145,6 +160,97 @@ const tableScrollbarCss = `
     outline-offset: 3px;
   }
 
+
+  .theme-light {
+    color-scheme: light;
+    background:
+      radial-gradient(circle at top left, rgba(14, 165, 233, 0.16), transparent 34%),
+      radial-gradient(circle at 85% 10%, rgba(99, 102, 241, 0.12), transparent 35%),
+      radial-gradient(circle at 50% 100%, rgba(16, 185, 129, 0.10), transparent 38%),
+      linear-gradient(135deg, #f8fafc, #eef6ff 48%, #f8fafc) !important;
+    color: rgb(15, 23, 42) !important;
+  }
+
+  .theme-dark {
+    color-scheme: dark;
+  }
+
+  .theme-light .premium-surface::before {
+    background:
+      linear-gradient(135deg, rgba(255,255,255,0.92), rgba(255,255,255,0.55) 36%, rgba(14,165,233,0.08)),
+      radial-gradient(circle at 15% 0%, rgba(14,165,233,0.12), transparent 32%),
+      radial-gradient(circle at 90% 10%, rgba(99,102,241,0.10), transparent 34%);
+    opacity: 1;
+  }
+
+  .theme-light .soft-grid-bg {
+    background-image:
+      linear-gradient(rgba(15,23,42,0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(15,23,42,0.045) 1px, transparent 1px);
+  }
+
+  .theme-light [class*="bg-slate-950"],
+  .theme-light [class*="bg-black"],
+  .theme-light [class*="bg-white/"] {
+    background-color: rgba(255, 255, 255, 0.72) !important;
+  }
+
+  .theme-light [class*="border-white"] {
+    border-color: rgba(15, 23, 42, 0.12) !important;
+  }
+
+  .theme-light .text-white,
+  .theme-light .text-slate-50,
+  .theme-light .text-slate-100,
+  .theme-light .text-slate-200 {
+    color: rgb(15, 23, 42) !important;
+  }
+
+  .theme-light .text-slate-300,
+  .theme-light .text-slate-400,
+  .theme-light .text-slate-500 {
+    color: rgb(71, 85, 105) !important;
+  }
+
+  .theme-light input,
+  .theme-light select,
+  .theme-light textarea {
+    background-color: rgba(255, 255, 255, 0.9) !important;
+    color: rgb(15, 23, 42) !important;
+    border-color: rgba(15, 23, 42, 0.14) !important;
+  }
+
+  .theme-light input::placeholder,
+  .theme-light textarea::placeholder {
+    color: rgb(100, 116, 139) !important;
+  }
+
+  .theme-light option {
+    background: rgb(255, 255, 255) !important;
+    color: rgb(15, 23, 42) !important;
+  }
+
+  .theme-light table thead {
+    background-color: rgba(241, 245, 249, 0.8) !important;
+  }
+
+  .theme-light table tbody tr:hover {
+    background-color: rgba(14, 165, 233, 0.08) !important;
+  }
+
+  .theme-light .visible-horizontal-scrollbar {
+    scrollbar-color: rgba(14, 165, 233, 0.95) rgba(226, 232, 240, 0.95);
+  }
+
+  .theme-light .visible-horizontal-scrollbar::-webkit-scrollbar-track {
+    background: rgba(226, 232, 240, 0.95);
+    border-color: rgba(15, 23, 42, 0.1);
+  }
+
+  .theme-light .visible-horizontal-scrollbar::-webkit-scrollbar-thumb {
+    border-color: rgba(226, 232, 240, 0.95);
+  }
+
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
@@ -164,6 +270,7 @@ type ManagedUserRole = Exclude<UserRole, 'Guest'>;
 type MembershipStatus = 'active' | 'inactive' | 'disabled';
 type AccessRequestStatus = 'Pending' | 'Approved' | 'Rejected';
 type ToastTone = 'success' | 'error' | 'warning' | 'info';
+type ThemeMode = 'dark' | 'light';
 type VerificationStatus = 'Unverified' | 'Verified' | 'Rejected';
 type RoundStatus = 'Completed' | 'Current' | 'Upcoming';
 type InsuranceStatus = 'Active' | 'Pending' | 'Expired';
@@ -321,6 +428,12 @@ interface StatCardProps {
 interface ModuleProps {
   title: string;
   content: React.ReactNode;
+}
+
+interface ChartPanelProps {
+  title: string;
+  detail: string;
+  children: React.ReactNode;
 }
 
 const roleRank: Record<UserRole, number> = {
@@ -569,6 +682,16 @@ const Module: React.FC<ModuleProps> = ({ title, content }) => (
   </section>
 );
 
+const ChartPanel: React.FC<ChartPanelProps> = ({ title, detail, children }) => (
+  <div className="rounded-[1.65rem] border border-white/10 bg-white/[0.055] p-4 shadow-xl shadow-black/15 ring-1 ring-white/5">
+    <div className="mb-4">
+      <p className="text-sm font-black tracking-tight text-white">{title}</p>
+      <p className="mt-1 text-xs leading-5 text-slate-400">{detail}</p>
+    </div>
+    <div className="h-[280px] w-full min-w-0">{children}</div>
+  </div>
+);
+
 export default function DashboardPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [contributions, setContributions] = useState<MonthlyContribution[]>([]);
@@ -590,6 +713,7 @@ export default function DashboardPage() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>('Guest');
   const [toast, setToast] = useState<{ id: number; message: string; tone: ToastTone } | null>(null);
+  const [themeMode, setThemeMode] = useState<ThemeMode>('dark');
 
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Member>>({});
@@ -808,6 +932,26 @@ export default function DashboardPage() {
       console.error('Failed to write audit log:', error);
     }
   };
+
+  const isLightTheme = themeMode === 'light';
+  const themeShellClass = isLightTheme ? 'theme-light' : 'theme-dark';
+
+  const handleThemeToggle = () => {
+    setThemeMode((previous) => (previous === 'dark' ? 'light' : 'dark'));
+  };
+
+  useEffect(() => {
+    const savedTheme = window.localStorage.getItem('jirani-mwema-theme');
+
+    if (savedTheme === 'dark' || savedTheme === 'light') {
+      setThemeMode(savedTheme);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem('jirani-mwema-theme', themeMode);
+    document.documentElement.dataset.theme = themeMode;
+  }, [themeMode]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -2667,6 +2811,97 @@ export default function DashboardPage() {
     minute: '2-digit',
   });
 
+  const chartColors = isLightTheme
+    ? ['#0284c7', '#059669', '#d97706', '#dc2626', '#7c3aed', '#0891b2']
+    : ['#22d3ee', '#34d399', '#fbbf24', '#fb7185', '#a78bfa', '#60a5fa'];
+  const chartTextColor = isLightTheme ? '#334155' : '#cbd5e1';
+  const chartGridColor = isLightTheme ? 'rgba(15, 23, 42, 0.12)' : 'rgba(255, 255, 255, 0.12)';
+  const chartTooltipStyle = {
+    backgroundColor: isLightTheme ? 'rgba(255, 255, 255, 0.96)' : 'rgba(2, 6, 23, 0.94)',
+    border: `1px solid ${isLightTheme ? 'rgba(15, 23, 42, 0.14)' : 'rgba(255, 255, 255, 0.14)'}`,
+    borderRadius: '18px',
+    color: chartTextColor,
+    boxShadow: '0 18px 50px rgba(0, 0, 0, 0.25)',
+  };
+  const chartTickFormatter = (value: number | string) => {
+    const numericValue = Number(value);
+
+    if (!Number.isFinite(numericValue)) return String(value);
+    if (Math.abs(numericValue) >= 1000000) return `${Math.round(numericValue / 1000000)}M`;
+    if (Math.abs(numericValue) >= 1000) return `${Math.round(numericValue / 1000)}K`;
+    return String(numericValue);
+  };
+  const monthOrder = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const monthlyContributionChartData = Object.values(
+    contributions.reduce<Record<string, { name: string; expected: number; paid: number; arrears: number; rows: number }>>((accumulator, contribution) => {
+      const month = contribution.month || 'Unknown';
+
+      if (!accumulator[month]) {
+        accumulator[month] = { name: month, expected: 0, paid: 0, arrears: 0, rows: 0 };
+      }
+
+      accumulator[month].expected += getContributionTotal(contribution);
+      accumulator[month].paid += getContributionPaidAmount(contribution);
+      accumulator[month].arrears += getContributionBalance(contribution);
+      accumulator[month].rows += 1;
+
+      return accumulator;
+    }, {})
+  ).sort((firstMonth, secondMonth) => {
+    const firstIndex = monthOrder.indexOf(firstMonth.name);
+    const secondIndex = monthOrder.indexOf(secondMonth.name);
+
+    if (firstIndex === -1 && secondIndex === -1) return firstMonth.name.localeCompare(secondMonth.name);
+    if (firstIndex === -1) return 1;
+    if (secondIndex === -1) return -1;
+    return firstIndex - secondIndex;
+  });
+  const contributionSplitChartData = [
+    { name: 'Welfare', value: contributions.reduce((sum, contribution) => sum + toMoneyNumber(contribution.welfare), 0) },
+    { name: 'Merry-Go-Round', value: contributions.reduce((sum, contribution) => sum + toMoneyNumber(contribution.merryGoRound), 0) },
+    { name: 'Insurance', value: contributions.reduce((sum, contribution) => sum + toMoneyNumber(contribution.insurance), 0) },
+    { name: 'Bereaved Family', value: contributions.reduce((sum, contribution) => sum + toMoneyNumber(contribution.bereavedFamily), 0) },
+  ].filter((item) => item.value > 0);
+  const verificationChartData = [
+    { name: 'Verified', value: verifiedContributionCount },
+    { name: 'Unverified', value: unverifiedContributionCount },
+    { name: 'Rejected', value: rejectedContributionCount },
+  ].filter((item) => item.value > 0);
+  const insuranceChartData = Object.values(
+    insurancePolicies.reduce<Record<string, { name: string; policies: number; premium: number; benefit: number }>>((accumulator, policy) => {
+      const status = policy.status || 'Unknown';
+
+      if (!accumulator[status]) {
+        accumulator[status] = { name: status, policies: 0, premium: 0, benefit: 0 };
+      }
+
+      accumulator[status].policies += 1;
+      accumulator[status].premium += toMoneyNumber(policy.premiumTarget);
+      accumulator[status].benefit += toMoneyNumber(policy.lastRespectBenefit);
+
+      return accumulator;
+    }, {})
+  );
+  const insuranceValueChartData = insurancePolicies.slice(0, 8).map((policy) => ({
+    name: policy.providerName || policy.month || 'Policy',
+    premium: toMoneyNumber(policy.premiumTarget),
+    benefit: toMoneyNumber(policy.lastRespectBenefit),
+  }));
+  const bereavedChartData = bereavedCases.slice(0, 8).map((caseItem) => ({
+    name: caseItem.memberName || caseItem.month || 'Case',
+    target: toMoneyNumber(caseItem.targetAmount),
+    collected: toMoneyNumber(caseItem.collectedAmount),
+    balance: Math.max(toMoneyNumber(caseItem.targetAmount) - toMoneyNumber(caseItem.collectedAmount), 0),
+  }));
+  const merryGoRoundChartData = [...merryGoRound]
+    .sort((firstRound, secondRound) => firstRound.roundNumber - secondRound.roundNumber)
+    .slice(0, 12)
+    .map((round) => ({
+      name: `#${round.roundNumber}`,
+      recipient: round.recipientName,
+      payout: toMoneyNumber(round.payoutAmount),
+    }));
+
   const formatCurrency = (amount: number) => `KES ${amount.toLocaleString('en-US')}`;
 
   if (loading || authLoading) {
@@ -2683,7 +2918,7 @@ export default function DashboardPage() {
 
   if (!currentUser) {
     return (
-      <div className="relative min-h-dvh overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.28),_transparent_34%),radial-gradient(circle_at_85%_10%,_rgba(168,85,247,0.20),_transparent_35%),radial-gradient(circle_at_50%_100%,_rgba(16,185,129,0.10),_transparent_38%),linear-gradient(135deg,#020617,#0f172a_48%,#111827)] px-3 py-3 text-slate-100 sm:px-5 lg:px-8">
+      <div className={`${themeShellClass} relative min-h-dvh overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.28),_transparent_34%),radial-gradient(circle_at_85%_10%,_rgba(168,85,247,0.20),_transparent_35%),radial-gradient(circle_at_50%_100%,_rgba(16,185,129,0.10),_transparent_38%),linear-gradient(135deg,#020617,#0f172a_48%,#111827)] px-3 py-3 text-slate-100 sm:px-5 lg:px-8`}>
         <style>{tableScrollbarCss}</style>
         <ToastBanner />
         <div className="pointer-events-none absolute inset-0 soft-grid-bg opacity-40" />
@@ -2767,7 +3002,7 @@ export default function DashboardPage() {
 
   if (currentUserRole === 'Guest') {
     return (
-      <div className="grid min-h-dvh place-items-center bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.22),_transparent_34%),radial-gradient(circle_at_bottom_right,_rgba(99,102,241,0.24),_transparent_38%),linear-gradient(135deg,#020617,#0f172a_45%,#111827)] px-3 py-4 text-slate-100 sm:px-5">
+      <div className={`${themeShellClass} grid min-h-dvh place-items-center bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.22),_transparent_34%),radial-gradient(circle_at_bottom_right,_rgba(99,102,241,0.24),_transparent_38%),linear-gradient(135deg,#020617,#0f172a_45%,#111827)] px-3 py-4 text-slate-100 sm:px-5`}>
         <style>{tableScrollbarCss}</style>
         <ToastBanner />
         <div className="w-full max-w-3xl rounded-3xl border border-white/10 bg-white/[0.08] p-4 shadow-xl shadow-black/20 ring-1 ring-white/5 backdrop-blur-2xl sm:p-6">
@@ -2840,7 +3075,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div id="app-top" className="relative min-h-dvh overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.24),_transparent_32%),radial-gradient(circle_at_80%_0%,_rgba(168,85,247,0.20),_transparent_32%),radial-gradient(circle_at_45%_100%,_rgba(16,185,129,0.08),_transparent_36%),linear-gradient(135deg,#020617,#0f172a_48%,#111827)] px-3 py-4 text-slate-100 sm:px-5 pb-24 lg:px-8 lg:py-6">
+    <div id="app-top" className={`${themeShellClass} relative min-h-dvh overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.24),_transparent_32%),radial-gradient(circle_at_80%_0%,_rgba(168,85,247,0.20),_transparent_32%),radial-gradient(circle_at_45%_100%,_rgba(16,185,129,0.08),_transparent_36%),linear-gradient(135deg,#020617,#0f172a_48%,#111827)] px-3 py-4 text-slate-100 sm:px-5 pb-24 lg:px-8 lg:py-6`}>
       <style>{tableScrollbarCss}</style>
       <ToastBanner />
       <a href="#dashboard-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[90] focus:rounded-2xl focus:bg-cyan-400 focus:px-4 focus:py-3 focus:text-sm focus:font-black focus:text-slate-950">Skip to dashboard content</a>
@@ -2862,7 +3097,10 @@ export default function DashboardPage() {
             <p className="text-xs text-slate-300">Role: <span className="font-bold text-cyan-200">{currentUserRole}</span></p>
             <p className="text-xs text-slate-400">UID: <span className="font-mono">{currentUser.uid}</span></p>
           </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:flex lg:flex-wrap lg:justify-end">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 lg:flex lg:flex-wrap lg:justify-end">
+            <button onClick={handleThemeToggle} className="rounded-2xl border border-cyan-300/25 bg-cyan-400/15 px-4 py-3 text-sm font-black text-cyan-100 shadow-lg shadow-cyan-950/20 backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-cyan-400/25" type="button" aria-pressed={isLightTheme}>
+              {isLightTheme ? 'Dark Mode' : 'Light Mode'}
+            </button>
             <button disabled={!canViewReports} onClick={exportContributionsCsv} className="rounded-2xl border border-emerald-300/25 bg-emerald-400/18 px-4 py-3 text-sm font-black text-emerald-100 shadow-lg shadow-emerald-950/20 backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-emerald-400/28 disabled:cursor-not-allowed disabled:opacity-40" type="button">
               Export CSV
             </button>
@@ -2879,9 +3117,11 @@ export default function DashboardPage() {
       <nav className="relative z-20 mx-auto mb-5 flex w-full max-w-7xl gap-2 visible-horizontal-scrollbar overflow-x-auto overscroll-x-contain rounded-[1.4rem] border border-white/10 bg-slate-950/45 p-2 pb-4 text-xs font-bold text-slate-200 shadow-xl shadow-black/20 backdrop-blur-2xl sm:text-sm" aria-label="Dashboard sections">
         {[
           'Access Control',
+          'Settings',
           canManageMembers ? 'Role Management' : '',
           canManageMembers ? 'Access Requests' : '',
           'Stats',
+          'Charts & Analytics',
           'Monthly Contributors',
           'Member Statement',
           'Reports & Exports',
@@ -2941,6 +3181,74 @@ export default function DashboardPage() {
               <StatCard title="Member Records" value={canManageMembers ? 'Editable' : 'Locked'} detail="Admin access required" />
               <StatCard title="Finance Records" value={canManageFinance ? 'Editable' : 'Locked'} detail="Treasurer or Admin access required" />
               <StatCard title="Reports" value={canViewReports ? 'Enabled' : 'Restricted'} detail="Treasurer or Admin access required" />
+            </div>
+          }
+        />
+
+        <Module
+          title="Settings"
+          content={
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_1.2fr]">
+              <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-xl shadow-black/10">
+                <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">Appearance</p>
+                <h3 className="mt-2 text-xl font-black tracking-tight text-white">Light / Dark Mode</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-300">
+                  Change the app theme for this browser. Your selection is saved locally and will be remembered when you reopen the app.
+                </p>
+
+                <div className="mt-4 grid grid-cols-2 gap-2 rounded-3xl border border-white/10 bg-black/20 p-2">
+                  <button
+                    type="button"
+                    onClick={() => setThemeMode('dark')}
+                    className={`rounded-2xl px-4 py-3 text-sm font-black transition ${
+                      themeMode === 'dark'
+                        ? 'border border-cyan-300/35 bg-cyan-400/20 text-cyan-50 shadow-lg shadow-cyan-950/20'
+                        : 'border border-white/10 bg-white/[0.06] text-slate-300 hover:bg-white/[0.12]'
+                    }`}
+                    aria-pressed={themeMode === 'dark'}
+                  >
+                    Dark
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setThemeMode('light')}
+                    className={`rounded-2xl px-4 py-3 text-sm font-black transition ${
+                      themeMode === 'light'
+                        ? 'border border-cyan-300/35 bg-cyan-400/20 text-cyan-50 shadow-lg shadow-cyan-950/20'
+                        : 'border border-white/10 bg-white/[0.06] text-slate-300 hover:bg-white/[0.12]'
+                    }`}
+                    aria-pressed={themeMode === 'light'}
+                  >
+                    Light
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-xl shadow-black/10">
+                <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-300">Current session</p>
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl border border-white/10 bg-black/15 p-3">
+                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Theme</p>
+                    <p className="mt-1 text-lg font-black text-white">{isLightTheme ? 'Light' : 'Dark'}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/15 p-3">
+                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Role</p>
+                    <p className="mt-1 text-lg font-black text-white">{currentUserRole}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/15 p-3">
+                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Saved</p>
+                    <p className="mt-1 text-lg font-black text-white">Browser</p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleThemeToggle}
+                  className="mt-4 w-full rounded-2xl border border-cyan-300/25 bg-cyan-400/15 px-4 py-3 text-sm font-black text-cyan-100 shadow-lg shadow-cyan-950/20 transition hover:-translate-y-0.5 hover:bg-cyan-400/25"
+                >
+                  Switch to {isLightTheme ? 'Dark' : 'Light'} Mode
+                </button>
+              </div>
             </div>
           }
         />
@@ -3215,6 +3523,153 @@ export default function DashboardPage() {
               <StatCard title="Payment Verification" value={verifiedContributionCount} detail={`${unverifiedContributionCount} unverified • ${rejectedContributionCount} rejected`} />
               <StatCard title="Insurance Target" value={formatCurrency(totalInsuranceTarget)} detail={`Benefit: ${formatCurrency(totalLastRespectBenefit)}`} />
               <StatCard title="Bereaved Support" value={formatCurrency(totalBereavedCollected)} detail={`Target: ${formatCurrency(totalBereavedTarget)}`} />
+            </div>
+          }
+        />
+
+        <Module
+          title="Charts & Analytics"
+          content={
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                <ChartPanel title="Monthly Contributions Trend" detail="Expected collection, actual paid amount, and arrears by month.">
+                  {monthlyContributionChartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={monthlyContributionChartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="paidGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor={chartColors[1]} stopOpacity={0.7} />
+                            <stop offset="95%" stopColor={chartColors[1]} stopOpacity={0.05} />
+                          </linearGradient>
+                          <linearGradient id="arrearsGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor={chartColors[3]} stopOpacity={0.55} />
+                            <stop offset="95%" stopColor={chartColors[3]} stopOpacity={0.04} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid stroke={chartGridColor} strokeDasharray="3 3" />
+                        <XAxis dataKey="name" tick={{ fill: chartTextColor, fontSize: 11 }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fill: chartTextColor, fontSize: 11 }} tickFormatter={chartTickFormatter} axisLine={false} tickLine={false} />
+                        <Tooltip contentStyle={chartTooltipStyle} labelStyle={{ color: chartTextColor, fontWeight: 800 }} />
+                        <Legend wrapperStyle={{ color: chartTextColor, fontSize: 12 }} />
+                        <Area type="monotone" dataKey="paid" name="Paid" stroke={chartColors[1]} fill="url(#paidGradient)" strokeWidth={3} />
+                        <Area type="monotone" dataKey="arrears" name="Arrears" stroke={chartColors[3]} fill="url(#arrearsGradient)" strokeWidth={3} />
+                        <Bar dataKey="expected" name="Expected" fill={chartColors[0]} radius={[8, 8, 0, 0]} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="grid h-full place-items-center rounded-2xl border border-white/10 bg-white/[0.04] text-center text-sm text-slate-400">No contribution data yet.</div>
+                  )}
+                </ChartPanel>
+
+                <ChartPanel title="Contribution Split" detail="Breakdown by welfare, merry-go-round, insurance, and bereaved support.">
+                  {contributionSplitChartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={contributionSplitChartData} dataKey="value" nameKey="name" innerRadius={58} outerRadius={92} paddingAngle={4}>
+                          {contributionSplitChartData.map((entry, index) => (
+                            <Cell key={entry.name} fill={chartColors[index % chartColors.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip contentStyle={chartTooltipStyle} labelStyle={{ color: chartTextColor, fontWeight: 800 }} />
+                        <Legend wrapperStyle={{ color: chartTextColor, fontSize: 12 }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="grid h-full place-items-center rounded-2xl border border-white/10 bg-white/[0.04] text-center text-sm text-slate-400">No contribution split data yet.</div>
+                  )}
+                </ChartPanel>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+                <ChartPanel title="Payment Verification" detail="Verified, unverified, and rejected contribution rows.">
+                  {verificationChartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={verificationChartData} dataKey="value" nameKey="name" outerRadius={92} label>
+                          {verificationChartData.map((entry, index) => (
+                            <Cell key={entry.name} fill={chartColors[index % chartColors.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip contentStyle={chartTooltipStyle} labelStyle={{ color: chartTextColor, fontWeight: 800 }} />
+                        <Legend wrapperStyle={{ color: chartTextColor, fontSize: 12 }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="grid h-full place-items-center rounded-2xl border border-white/10 bg-white/[0.04] text-center text-sm text-slate-400">No verification data yet.</div>
+                  )}
+                </ChartPanel>
+
+                <ChartPanel title="Insurance Status" detail="Insurance policy count by status.">
+                  {insuranceChartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={insuranceChartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+                        <CartesianGrid stroke={chartGridColor} strokeDasharray="3 3" />
+                        <XAxis dataKey="name" tick={{ fill: chartTextColor, fontSize: 11 }} axisLine={false} tickLine={false} />
+                        <YAxis allowDecimals={false} tick={{ fill: chartTextColor, fontSize: 11 }} axisLine={false} tickLine={false} />
+                        <Tooltip contentStyle={chartTooltipStyle} labelStyle={{ color: chartTextColor, fontWeight: 800 }} />
+                        <Bar dataKey="policies" name="Policies" fill={chartColors[0]} radius={[8, 8, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="grid h-full place-items-center rounded-2xl border border-white/10 bg-white/[0.04] text-center text-sm text-slate-400">No insurance policies yet.</div>
+                  )}
+                </ChartPanel>
+
+                <ChartPanel title="Merry-Go-Round Payouts" detail="Scheduled payout amounts by round.">
+                  {merryGoRoundChartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={merryGoRoundChartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+                        <CartesianGrid stroke={chartGridColor} strokeDasharray="3 3" />
+                        <XAxis dataKey="name" tick={{ fill: chartTextColor, fontSize: 11 }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fill: chartTextColor, fontSize: 11 }} tickFormatter={chartTickFormatter} axisLine={false} tickLine={false} />
+                        <Tooltip contentStyle={chartTooltipStyle} labelStyle={{ color: chartTextColor, fontWeight: 800 }} />
+                        <Bar dataKey="payout" name="Payout" fill={chartColors[4]} radius={[8, 8, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="grid h-full place-items-center rounded-2xl border border-white/10 bg-white/[0.04] text-center text-sm text-slate-400">No merry-go-round rounds yet.</div>
+                  )}
+                </ChartPanel>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                <ChartPanel title="Insurance Premium vs Benefit" detail="Compares premium target and last respect benefit for recent policies.">
+                  {insuranceValueChartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={insuranceValueChartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+                        <CartesianGrid stroke={chartGridColor} strokeDasharray="3 3" />
+                        <XAxis dataKey="name" tick={{ fill: chartTextColor, fontSize: 11 }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fill: chartTextColor, fontSize: 11 }} tickFormatter={chartTickFormatter} axisLine={false} tickLine={false} />
+                        <Tooltip contentStyle={chartTooltipStyle} labelStyle={{ color: chartTextColor, fontWeight: 800 }} />
+                        <Legend wrapperStyle={{ color: chartTextColor, fontSize: 12 }} />
+                        <Bar dataKey="premium" name="Premium Target" fill={chartColors[0]} radius={[8, 8, 0, 0]} />
+                        <Bar dataKey="benefit" name="Last Respect Benefit" fill={chartColors[1]} radius={[8, 8, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="grid h-full place-items-center rounded-2xl border border-white/10 bg-white/[0.04] text-center text-sm text-slate-400">No insurance value data yet.</div>
+                  )}
+                </ChartPanel>
+
+                <ChartPanel title="Bereaved Support Collection" detail="Target, collected amount, and outstanding balance for recent cases.">
+                  {bereavedChartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={bereavedChartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+                        <CartesianGrid stroke={chartGridColor} strokeDasharray="3 3" />
+                        <XAxis dataKey="name" tick={{ fill: chartTextColor, fontSize: 11 }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fill: chartTextColor, fontSize: 11 }} tickFormatter={chartTickFormatter} axisLine={false} tickLine={false} />
+                        <Tooltip contentStyle={chartTooltipStyle} labelStyle={{ color: chartTextColor, fontWeight: 800 }} />
+                        <Legend wrapperStyle={{ color: chartTextColor, fontSize: 12 }} />
+                        <Bar dataKey="target" name="Target" fill={chartColors[0]} radius={[8, 8, 0, 0]} />
+                        <Bar dataKey="collected" name="Collected" fill={chartColors[1]} radius={[8, 8, 0, 0]} />
+                        <Bar dataKey="balance" name="Balance" fill={chartColors[3]} radius={[8, 8, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="grid h-full place-items-center rounded-2xl border border-white/10 bg-white/[0.04] text-center text-sm text-slate-400">No bereaved support cases yet.</div>
+                  )}
+                </ChartPanel>
+              </div>
             </div>
           }
         />
@@ -4458,9 +4913,10 @@ export default function DashboardPage() {
         />
       </main>
 
-      <div className="fixed inset-x-3 bottom-3 z-40 grid grid-cols-4 gap-2 rounded-[1.65rem] border border-white/10 bg-slate-950/82 p-2 shadow-2xl shadow-black/40 ring-1 ring-white/5 backdrop-blur-2xl sm:hidden">
+      <div className="fixed inset-x-3 bottom-3 z-40 grid grid-cols-5 gap-2 rounded-[1.65rem] border border-white/10 bg-slate-950/82 p-2 shadow-2xl shadow-black/40 ring-1 ring-white/5 backdrop-blur-2xl sm:hidden">
         <a href="#access-control" className="rounded-2xl bg-white/[0.08] px-2 py-2 text-center text-[11px] font-black text-slate-100">Home</a>
         <a href="#monthly-contributors" className="rounded-2xl bg-cyan-400/15 px-2 py-2 text-center text-[11px] font-black text-cyan-100">Money</a>
+        <a href="#settings" className="rounded-2xl bg-white/[0.08] px-2 py-2 text-center text-[11px] font-black text-slate-100">Settings</a>
         <a href="#member-statement" className="rounded-2xl bg-white/[0.08] px-2 py-2 text-center text-[11px] font-black text-slate-100">Statement</a>
         <a href="#app-top" className="rounded-2xl bg-white/[0.08] px-2 py-2 text-center text-[11px] font-black text-slate-100">Top</a>
       </div>
