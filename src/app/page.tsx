@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { BarChart3, BellRing, Moon, Search, Settings as SettingsIcon, ShieldCheck, Sparkles, Sun, UserSearch, X } from 'lucide-react';
 import {
   Area,
   AreaChart,
@@ -436,6 +438,33 @@ interface ChartPanelProps {
   children: React.ReactNode;
 }
 
+type DataHealthSeverity = 'error' | 'warning' | 'info';
+
+interface DataHealthIssue {
+  id: string;
+  severity: DataHealthSeverity;
+  module: string;
+  title: string;
+  detail: string;
+  count: number;
+}
+
+interface DefaulterNotificationRow {
+  memberId: string;
+  memberName: string;
+  email: string;
+  contact: string;
+  months: string[];
+  totalExpected: number;
+  totalPaid: number;
+  totalDue: number;
+  welfareDue: number;
+  merryGoRoundDue: number;
+  insuranceDue: number;
+  bereavedFamilyDue: number;
+  lastPaymentDate: string;
+}
+
 const roleRank: Record<UserRole, number> = {
   Guest: 0,
   Member: 1,
@@ -619,6 +648,31 @@ const getContributionBalance = (contribution: MonthlyContribution) => {
   return Math.max(expectedAmount - paidAmount, 0);
 };
 
+const getContributionSplitArrears = (contribution: MonthlyContribution) => {
+  const splitValues = [
+    ['welfareDue', toMoneyNumber(contribution.welfare)],
+    ['merryGoRoundDue', toMoneyNumber(contribution.merryGoRound)],
+    ['insuranceDue', toMoneyNumber(contribution.insurance)],
+    ['bereavedFamilyDue', toMoneyNumber(contribution.bereavedFamily)],
+  ] as const;
+
+  let paidRemaining = getContributionPaidAmount(contribution);
+  const arrears = {
+    welfareDue: 0,
+    merryGoRoundDue: 0,
+    insuranceDue: 0,
+    bereavedFamilyDue: 0,
+  };
+
+  splitValues.forEach(([key, expectedAmount]) => {
+    const coveredAmount = Math.min(paidRemaining, expectedAmount);
+    arrears[key] = Math.max(expectedAmount - coveredAmount, 0);
+    paidRemaining = Math.max(paidRemaining - expectedAmount, 0);
+  });
+
+  return arrears;
+};
+
 const normalizeVerificationStatus = (value: unknown): VerificationStatus => {
   if (value === 'Verified' || value === 'Rejected') return value;
   return 'Unverified';
@@ -649,28 +703,60 @@ const emptyContributionEditForm = (): ContributionEditForm => ({
 });
 
 const StatCard: React.FC<StatCardProps> = ({ title, value, detail }) => (
-  <div className="premium-surface touch-card metric-glow group relative min-h-[136px] overflow-hidden rounded-[1.85rem] border border-white/10 bg-slate-950/35 p-4 ring-1 ring-white/5 backdrop-blur-2xl transition duration-300 hover:-translate-y-1 hover:border-cyan-300/35 hover:bg-white/[0.09] sm:p-5">
+  <motion.div
+    initial={{ opacity: 0, y: 14 }}
+    whileInView={{ opacity: 1, y: 0 }}
+    viewport={{ once: true, margin: '-40px' }}
+    transition={{ duration: 0.35, ease: 'easeOut' }}
+    whileHover={{ y: -4, scale: 1.01 }}
+    whileTap={{ scale: 0.99 }}
+    className="premium-surface touch-card metric-glow group relative min-h-[136px] overflow-hidden rounded-[1.85rem] border border-white/10 bg-slate-950/35 p-4 ring-1 ring-white/5 backdrop-blur-2xl transition duration-300 hover:border-cyan-300/35 hover:bg-white/[0.09] sm:p-5"
+  >
     <div className="absolute inset-x-5 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/45 to-transparent" />
-    <div className="absolute -right-12 -top-12 h-32 w-32 rounded-full bg-cyan-300/10 blur-2xl transition group-hover:bg-cyan-300/20" />
+    <motion.div
+      animate={{ scale: [1, 1.08, 1], opacity: [0.55, 0.85, 0.55] }}
+      transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+      className="absolute -right-12 -top-12 h-32 w-32 rounded-full bg-cyan-300/10 blur-2xl transition group-hover:bg-cyan-300/20"
+    />
     <div className="absolute -bottom-16 left-4 h-28 w-28 rounded-full bg-indigo-400/10 blur-2xl" />
     <div className="relative flex h-full flex-col justify-between">
       <div className="flex items-center justify-between gap-3">
         <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-300 sm:text-xs">{title}</p>
-        <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-lg shadow-cyan-300/40" />
+        <Sparkles className="h-4 w-4 text-cyan-300 drop-shadow" aria-hidden="true" />
       </div>
       <p className="mt-4 break-words text-2xl font-black tracking-tight text-white sm:text-3xl">{value}</p>
       <p className="mt-2 text-xs leading-5 text-slate-300">{detail}</p>
     </div>
-  </div>
+  </motion.div>
 );
 
+const getModuleIcon = (title: string) => {
+  if (title.includes('Settings')) return <SettingsIcon className="h-4 w-4 text-cyan-200" aria-hidden="true" />;
+  if (title.includes('Charts')) return <BarChart3 className="h-4 w-4 text-cyan-200" aria-hidden="true" />;
+  if (title.includes('Member Search')) return <UserSearch className="h-4 w-4 text-cyan-200" aria-hidden="true" />;
+  if (title.includes('Defaulter')) return <BellRing className="h-4 w-4 text-amber-200" aria-hidden="true" />;
+  if (title.includes('Access')) return <ShieldCheck className="h-4 w-4 text-emerald-200" aria-hidden="true" />;
+
+  return <Sparkles className="h-4 w-4 text-cyan-200" aria-hidden="true" />;
+};
+
 const Module: React.FC<ModuleProps> = ({ title, content }) => (
-  <section id={title.toLowerCase().replace(/[^a-z0-9]+/g, '-')} className="mb-6 min-w-0 scroll-mt-28 sm:mb-8">
+  <motion.section
+    id={title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}
+    className="mb-6 min-w-0 scroll-mt-28 sm:mb-8"
+    initial={{ opacity: 0, y: 18 }}
+    whileInView={{ opacity: 1, y: 0 }}
+    viewport={{ once: true, margin: '-80px' }}
+    transition={{ duration: 0.42, ease: 'easeOut' }}
+  >
     <div className="mb-3 flex flex-wrap items-end justify-between gap-3 px-1 sm:mb-4">
       <div className="flex min-w-0 items-center gap-3">
-        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-2xl border border-cyan-300/20 bg-cyan-400/10 shadow-lg shadow-cyan-950/20">
-          <div className="h-2.5 w-2.5 rounded-full bg-cyan-300 shadow-lg shadow-cyan-300/40" />
-        </div>
+        <motion.div
+          whileHover={{ rotate: -4, scale: 1.05 }}
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-2xl border border-cyan-300/20 bg-cyan-400/10 shadow-lg shadow-cyan-950/20"
+        >
+          {getModuleIcon(title)}
+        </motion.div>
         <div className="min-w-0">
           <p className="text-[10px] font-black uppercase tracking-[0.22em] text-cyan-300/80">Workspace</p>
           <h2 className="truncate text-lg font-black tracking-tight text-white sm:text-xl">{title}</h2>
@@ -678,18 +764,36 @@ const Module: React.FC<ModuleProps> = ({ title, content }) => (
       </div>
       <div className="hidden h-px flex-1 subtle-divider sm:block" />
     </div>
-    <div className="premium-surface min-w-0 max-w-full overflow-hidden rounded-[1.85rem] border border-white/10 bg-slate-950/35 p-3 shadow-2xl shadow-black/25 ring-1 ring-white/5 backdrop-blur-2xl sm:p-5 lg:p-6">{content}</div>
-  </section>
+    <motion.div
+      whileHover={{ y: -1 }}
+      transition={{ type: 'spring', stiffness: 240, damping: 22 }}
+      className="premium-surface min-w-0 max-w-full overflow-hidden rounded-[1.85rem] border border-white/10 bg-slate-950/35 p-3 shadow-2xl shadow-black/25 ring-1 ring-white/5 backdrop-blur-2xl sm:p-5 lg:p-6"
+    >
+      {content}
+    </motion.div>
+  </motion.section>
 );
 
 const ChartPanel: React.FC<ChartPanelProps> = ({ title, detail, children }) => (
-  <div className="rounded-[1.65rem] border border-white/10 bg-white/[0.055] p-4 shadow-xl shadow-black/15 ring-1 ring-white/5">
-    <div className="mb-4">
-      <p className="text-sm font-black tracking-tight text-white">{title}</p>
-      <p className="mt-1 text-xs leading-5 text-slate-400">{detail}</p>
+  <motion.div
+    initial={{ opacity: 0, y: 12 }}
+    whileInView={{ opacity: 1, y: 0 }}
+    viewport={{ once: true, margin: '-60px' }}
+    transition={{ duration: 0.35, ease: 'easeOut' }}
+    whileHover={{ y: -3 }}
+    className="rounded-[1.65rem] border border-white/10 bg-white/[0.055] p-4 shadow-xl shadow-black/15 ring-1 ring-white/5"
+  >
+    <div className="mb-4 flex items-start gap-3">
+      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-2xl border border-cyan-300/20 bg-cyan-400/10">
+        <BarChart3 className="h-4 w-4 text-cyan-200" aria-hidden="true" />
+      </div>
+      <div>
+        <p className="text-sm font-black tracking-tight text-white">{title}</p>
+        <p className="mt-1 text-xs leading-5 text-slate-400">{detail}</p>
+      </div>
     </div>
     <div className="h-[280px] w-full min-w-0">{children}</div>
-  </div>
+  </motion.div>
 );
 
 export default function DashboardPage() {
@@ -710,6 +814,10 @@ export default function DashboardPage() {
   const [auditSearch, setAuditSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [authLoading, setAuthLoading] = useState(true);
+  const [dataRefreshKey, setDataRefreshKey] = useState(0);
+  const [isRefreshingData, setIsRefreshingData] = useState(false);
+  const [dataLoadError, setDataLoadError] = useState('');
+  const [lastDataRefreshAt, setLastDataRefreshAt] = useState('');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>('Guest');
   const [toast, setToast] = useState<{ id: number; message: string; tone: ToastTone } | null>(null);
@@ -724,6 +832,11 @@ export default function DashboardPage() {
   const [contributionStatusFilter, setContributionStatusFilter] = useState<'All' | PaymentStatus>('All');
   const [contributionVerificationFilter, setContributionVerificationFilter] = useState<'All' | VerificationStatus>('All');
   const [statementMemberName, setStatementMemberName] = useState('');
+  const [memberProfileSearch, setMemberProfileSearch] = useState('');
+  const [selectedMemberProfileId, setSelectedMemberProfileId] = useState('');
+  const [defaulterNotificationSearch, setDefaulterNotificationSearch] = useState('');
+  const [defaulterNotificationMonth, setDefaulterNotificationMonth] = useState('All');
+  const [defaulterMinimumBalance, setDefaulterMinimumBalance] = useState('1');
   const [generationMonth, setGenerationMonth] = useState(currentMonthName());
 
   const [submittingMember, setSubmittingMember] = useState(false);
@@ -832,37 +945,49 @@ export default function DashboardPage() {
     }, 4200);
   };
 
-  const ToastBanner = () =>
-    toast ? (
-      <div className="fixed inset-x-3 top-3 z-[80] mx-auto max-w-xl sm:top-5" role="status" aria-live="polite">
-        <div
-          className={`flex items-start justify-between gap-3 rounded-3xl border px-4 py-3 text-sm shadow-2xl shadow-black/30 backdrop-blur-2xl ${
-            toast.tone === 'success'
-              ? 'border-emerald-300/30 bg-emerald-400/15 text-emerald-50'
-              : toast.tone === 'error'
-                ? 'border-rose-300/30 bg-rose-400/15 text-rose-50'
-                : toast.tone === 'warning'
-                  ? 'border-amber-300/30 bg-amber-400/15 text-amber-50'
-                  : 'border-cyan-300/30 bg-cyan-400/15 text-cyan-50'
-          }`}
+  const ToastBanner = () => (
+    <AnimatePresence>
+      {toast ? (
+        <motion.div
+          key={toast.id}
+          initial={{ opacity: 0, y: -24, scale: 0.96 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -18, scale: 0.96 }}
+          transition={{ type: 'spring', stiffness: 380, damping: 28 }}
+          className="fixed inset-x-3 top-3 z-[80] mx-auto max-w-xl sm:top-5"
+          role="status"
+          aria-live="polite"
         >
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em]">
-              {toast.tone === 'success' ? 'Success' : toast.tone === 'error' ? 'Action failed' : toast.tone === 'warning' ? 'Check this' : 'Notice'}
-            </p>
-            <p className="mt-1 leading-5">{toast.message}</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setToast(null)}
-            className="shrink-0 rounded-full border border-white/15 bg-white/10 px-2 py-1 text-xs font-black text-white/90"
-            aria-label="Dismiss notification"
+          <div
+            className={`flex items-start justify-between gap-3 rounded-3xl border px-4 py-3 text-sm shadow-2xl shadow-black/30 backdrop-blur-2xl ${
+              toast.tone === 'success'
+                ? 'border-emerald-300/30 bg-emerald-400/15 text-emerald-50'
+                : toast.tone === 'error'
+                  ? 'border-rose-300/30 bg-rose-400/15 text-rose-50'
+                  : toast.tone === 'warning'
+                    ? 'border-amber-300/30 bg-amber-400/15 text-amber-50'
+                    : 'border-cyan-300/30 bg-cyan-400/15 text-cyan-50'
+            }`}
           >
-            ×
-          </button>
-        </div>
-      </div>
-    ) : null;
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em]">
+                {toast.tone === 'success' ? 'Success' : toast.tone === 'error' ? 'Action failed' : toast.tone === 'warning' ? 'Check this' : 'Notice'}
+              </p>
+              <p className="mt-1 leading-5">{toast.message}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setToast(null)}
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-white/15 bg-white/10 text-white/90 transition hover:bg-white/20"
+              aria-label="Dismiss notification"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  )
 
   const requireRole = (minimumRole: ProtectedRole, action: string) => {
     if (!currentUser) {
@@ -982,10 +1107,13 @@ export default function DashboardPage() {
     async function fetchData() {
       if (!currentUser || currentUserRole === 'Guest') {
         setLoading(false);
+        setIsRefreshingData(false);
+        setDataLoadError('');
         return;
       }
 
       setLoading(true);
+      setDataLoadError('');
       try {
         const membersSnapshot = await getDocs(collection(db, 'groups', CURRENT_GROUP_ID, 'members'));
         const membersList = membersSnapshot.docs.map((documentSnapshot) => {
@@ -1107,15 +1235,19 @@ export default function DashboardPage() {
         } else {
           setAuditLogs([]);
         }
+
+        setLastDataRefreshAt(new Date().toISOString());
       } catch (error) {
         console.error('Error loading dashboard metrics:', error);
+        setDataLoadError(error instanceof Error ? error.message : 'Failed to load dashboard data.');
       } finally {
         setLoading(false);
+        setIsRefreshingData(false);
       }
     }
 
     fetchData();
-  }, [currentUser, currentUserRole]);
+  }, [currentUser, currentUserRole, dataRefreshKey]);
 
 
   useEffect(() => {
@@ -2460,6 +2592,20 @@ export default function DashboardPage() {
     setContributionVerificationFilter('All');
   };
 
+  const handleRefreshDashboardData = () => {
+    if (!currentUser || currentUserRole === 'Guest') {
+      notify('Sign in with an approved role before refreshing dashboard data.', 'warning');
+      return;
+    }
+
+    setIsRefreshingData(true);
+    setDataRefreshKey((previous) => previous + 1);
+  };
+
+  const clearDataLoadError = () => {
+    setDataLoadError('');
+  };
+
   const downloadCsvFile = (
     filename: string,
     headers: string[],
@@ -2490,6 +2636,137 @@ export default function DashboardPage() {
         details: auditInfo.details,
       });
     }
+  };
+
+  const getDefaulterMessage = (row: DefaulterNotificationRow) => {
+    const remittanceBreakdown = [
+      row.welfareDue > 0 ? `Welfare: KES ${row.welfareDue.toLocaleString('en-US')}` : '',
+      row.merryGoRoundDue > 0 ? `Merry-Go-Round: KES ${row.merryGoRoundDue.toLocaleString('en-US')}` : '',
+      row.insuranceDue > 0 ? `Insurance: KES ${row.insuranceDue.toLocaleString('en-US')}` : '',
+      row.bereavedFamilyDue > 0 ? `Bereaved Family Support: KES ${row.bereavedFamilyDue.toLocaleString('en-US')}` : '',
+    ].filter(Boolean).join('; ');
+
+    return `Hello ${row.memberName}, this is a reminder from Jirani Mwema SHG. Our records show outstanding remittances of KES ${row.totalDue.toLocaleString('en-US')} for ${row.months.join(', ') || 'your contribution period'}. Breakdown: ${remittanceBreakdown || 'monthly remittance balance'}. Kindly clear the balance or contact the Treasurer if already paid. Thank you.`;
+  };
+
+  const normalizePhoneForWhatsApp = (contact: string) => {
+    const digits = contact.replace(/\D/g, '');
+
+    if (!digits) return '';
+    if (digits.startsWith('254')) return digits;
+    if (digits.startsWith('0')) return `254${digits.slice(1)}`;
+    if (digits.startsWith('7') || digits.startsWith('1')) return `254${digits}`;
+
+    return digits;
+  };
+
+  const copyDefaulterMessage = async (row: DefaulterNotificationRow) => {
+    if (!requireRole('Treasurer', 'copy defaulter notification messages')) return;
+
+    try {
+      await navigator.clipboard.writeText(getDefaulterMessage(row));
+      notify(`Notification message copied for ${row.memberName}.`, 'success');
+
+      void writeAuditLog({
+        action: 'Copy Defaulter Notification',
+        module: 'Defaulter Notifications',
+        actor: actorName,
+        targetName: row.memberName,
+        details: `Copied reminder for outstanding balance of ${formatCurrency(row.totalDue)}.`,
+      });
+    } catch (error) {
+      console.error('Failed to copy defaulter notification:', error);
+      notify('Failed to copy notification message.', 'error');
+    }
+  };
+
+  const copyAllDefaulterMessages = async () => {
+    if (!requireRole('Treasurer', 'copy bulk defaulter notification messages')) return;
+
+    if (defaulterRows.length === 0) {
+      notify('No defaulters found for the current filters.', 'warning');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(defaulterRows.map((row) => getDefaulterMessage(row)).join('\n\n---\n\n'));
+      notify(`Copied ${defaulterRows.length} defaulter notification message(s).`, 'success');
+
+      void writeAuditLog({
+        action: 'Copy Bulk Defaulter Notifications',
+        module: 'Defaulter Notifications',
+        actor: actorName,
+        targetName: `${defaulterRows.length} defaulter(s)`,
+        details: `Copied bulk reminders worth ${formatCurrency(defaulterNotificationTotalDue)}.`,
+      });
+    } catch (error) {
+      console.error('Failed to copy bulk defaulter notifications:', error);
+      notify('Failed to copy bulk notification messages.', 'error');
+    }
+  };
+
+  const openDefaulterWhatsApp = (row: DefaulterNotificationRow) => {
+    if (!requireRole('Treasurer', 'open WhatsApp defaulter notification')) return;
+
+    const phone = normalizePhoneForWhatsApp(row.contact);
+
+    if (!phone) {
+      notify(`${row.memberName} has no valid phone/contact saved.`, 'warning');
+      return;
+    }
+
+    const message = encodeURIComponent(getDefaulterMessage(row));
+    window.open(`https://wa.me/${phone}?text=${message}`, '_blank', 'noopener,noreferrer');
+
+    void writeAuditLog({
+      action: 'Open WhatsApp Defaulter Notification',
+      module: 'Defaulter Notifications',
+      actor: actorName,
+      targetName: row.memberName,
+      details: `Opened WhatsApp reminder for ${formatCurrency(row.totalDue)} outstanding.`,
+    });
+  };
+
+  const exportDefaulterNotificationsCsv = () => {
+    if (!requireRole('Treasurer', 'export defaulter notifications')) return;
+
+    downloadCsvFile(
+      'defaulter-notifications.csv',
+      ['Member', 'Email', 'Contact', 'Months', 'Expected', 'Paid', 'Outstanding', 'Welfare Due', 'Merry-Go-Round Due', 'Insurance Due', 'Bereaved Family Due', 'Last Payment Date', 'Message'],
+      defaulterRows.map((row) => [
+        row.memberName,
+        row.email,
+        row.contact,
+        row.months.join('; '),
+        row.totalExpected,
+        row.totalPaid,
+        row.totalDue,
+        row.welfareDue,
+        row.merryGoRoundDue,
+        row.insuranceDue,
+        row.bereavedFamilyDue,
+        row.lastPaymentDate,
+        getDefaulterMessage(row),
+      ]),
+      {
+        action: 'Export Defaulter Notifications',
+        module: 'Defaulter Notifications',
+        details: `Exported ${defaulterRows.length} defaulter notification row(s).`,
+      }
+    );
+  };
+
+  const exportDataHealthCsv = () => {
+    downloadCsvFile(
+      'data-health-report.csv',
+      ['Severity', 'Module', 'Issue', 'Count', 'Detail'],
+      dataHealthIssues.map((issue) => [issue.severity, issue.module, issue.title, issue.count, issue.detail]),
+      {
+        action: 'Export Data Health Report',
+        module: 'Data Health',
+        details: `Exported ${dataHealthIssues.length} data health issue(s).`,
+      }
+    );
   };
 
   const exportContributionsCsv = () => {
@@ -2732,6 +3009,130 @@ export default function DashboardPage() {
   const statementRejectedCount = statementContributions.filter((contribution) => normalizeVerificationStatus(contribution.verificationStatus) === 'Rejected').length;
   const statementUnverifiedCount = statementContributions.filter((contribution) => normalizeVerificationStatus(contribution.verificationStatus) === 'Unverified').length;
 
+  const memberProfileSearchTerm = memberProfileSearch.trim().toLowerCase();
+  const memberProfileMatches = members
+    .filter((member) => {
+      if (!memberProfileSearchTerm) return true;
+
+      return [
+        member.name,
+        member.email,
+        member.contact,
+        member.status,
+        member.joinDate,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(memberProfileSearchTerm));
+    })
+    .sort((firstMember, secondMember) => firstMember.name.localeCompare(secondMember.name));
+  const selectedMemberProfile =
+    members.find((member) => member.id === selectedMemberProfileId) ||
+    (memberProfileMatches.length === 1 ? memberProfileMatches[0] : undefined);
+  const selectedMemberProfileName = selectedMemberProfile?.name.trim().toLowerCase() || '';
+  const selectedMemberProfileEmail = selectedMemberProfile?.email.trim().toLowerCase() || '';
+  const memberProfileRoleRecord = selectedMemberProfile
+    ? roleMemberships.find((membership) => {
+        const membershipEmail = membership.email.trim().toLowerCase();
+        const membershipName = membership.displayName.trim().toLowerCase();
+
+        return (
+          (selectedMemberProfileEmail && membershipEmail === selectedMemberProfileEmail) ||
+          (!!selectedMemberProfileName && membershipName === selectedMemberProfileName)
+        );
+      })
+    : undefined;
+  const memberProfileContributions = selectedMemberProfile
+    ? contributions
+        .filter((contribution) => contribution.memberName.trim().toLowerCase() === selectedMemberProfileName)
+        .sort((firstContribution, secondContribution) => {
+          const firstDate = firstContribution.paymentDate || firstContribution.createdAt || '';
+          const secondDate = secondContribution.paymentDate || secondContribution.createdAt || '';
+
+          return secondDate.localeCompare(firstDate);
+        })
+    : [];
+  const memberProfileExpectedTotal = memberProfileContributions.reduce((sum, contribution) => sum + getContributionTotal(contribution), 0);
+  const memberProfilePaidTotal = memberProfileContributions.reduce((sum, contribution) => sum + getContributionPaidAmount(contribution), 0);
+  const memberProfileArrearsTotal = memberProfileContributions.reduce((sum, contribution) => sum + getContributionBalance(contribution), 0);
+  const memberProfileVerifiedCount = memberProfileContributions.filter((contribution) => normalizeVerificationStatus(contribution.verificationStatus) === 'Verified').length;
+  const memberProfilePendingReviewCount = memberProfileContributions.length - memberProfileVerifiedCount;
+  const memberProfileLatestPayment = memberProfileContributions.find((contribution) => contribution.paymentDate || contribution.createdAt);
+  const memberProfileBereavedCases = selectedMemberProfile
+    ? bereavedCases.filter((caseItem) => caseItem.memberName.trim().toLowerCase() === selectedMemberProfileName)
+    : [];
+  const memberProfileMerryGoRoundRounds = selectedMemberProfile
+    ? merryGoRound.filter((round) => round.recipientName.trim().toLowerCase() === selectedMemberProfileName)
+    : [];
+
+  const contributionMonthsForNotifications = Array.from(new Set(contributions.map((contribution) => contribution.month).filter(Boolean))).sort((firstMonth, secondMonth) => firstMonth.localeCompare(secondMonth));
+  const defaulterMinimumBalanceValue = Math.max(toMoneyNumber(defaulterMinimumBalance), 0);
+  const notificationContributionSource = defaulterNotificationMonth === 'All'
+    ? contributions
+    : contributions.filter((contribution) => contribution.month === defaulterNotificationMonth);
+  const defaulterRows = Object.values(
+    notificationContributionSource.reduce<Record<string, DefaulterNotificationRow>>((accumulator, contribution) => {
+      const totalDue = getContributionBalance(contribution);
+      if (totalDue <= 0) return accumulator;
+
+      const normalizedMemberName = contribution.memberName.trim().toLowerCase();
+      if (!normalizedMemberName) return accumulator;
+
+      const matchingMember = members.find((member) => member.name.trim().toLowerCase() === normalizedMemberName);
+      const rowKey = matchingMember?.id || normalizedMemberName;
+      const splitArrears = getContributionSplitArrears(contribution);
+
+      if (!accumulator[rowKey]) {
+        accumulator[rowKey] = {
+          memberId: matchingMember?.id || '',
+          memberName: matchingMember?.name || contribution.memberName,
+          email: matchingMember?.email || '',
+          contact: matchingMember?.contact || '',
+          months: [],
+          totalExpected: 0,
+          totalPaid: 0,
+          totalDue: 0,
+          welfareDue: 0,
+          merryGoRoundDue: 0,
+          insuranceDue: 0,
+          bereavedFamilyDue: 0,
+          lastPaymentDate: '',
+        };
+      }
+
+      accumulator[rowKey].totalExpected += getContributionTotal(contribution);
+      accumulator[rowKey].totalPaid += getContributionPaidAmount(contribution);
+      accumulator[rowKey].totalDue += totalDue;
+      accumulator[rowKey].welfareDue += splitArrears.welfareDue;
+      accumulator[rowKey].merryGoRoundDue += splitArrears.merryGoRoundDue;
+      accumulator[rowKey].insuranceDue += splitArrears.insuranceDue;
+      accumulator[rowKey].bereavedFamilyDue += splitArrears.bereavedFamilyDue;
+
+      if (contribution.month && !accumulator[rowKey].months.includes(contribution.month)) {
+        accumulator[rowKey].months.push(contribution.month);
+      }
+
+      const paymentDate = contribution.paymentDate || contribution.createdAt || '';
+      if (paymentDate && paymentDate > accumulator[rowKey].lastPaymentDate) {
+        accumulator[rowKey].lastPaymentDate = paymentDate;
+      }
+
+      return accumulator;
+    }, {})
+  )
+    .filter((row) => row.totalDue >= defaulterMinimumBalanceValue)
+    .filter((row) => {
+      const searchTerm = defaulterNotificationSearch.trim().toLowerCase();
+      if (!searchTerm) return true;
+
+      return [row.memberName, row.email, row.contact, row.months.join(' ')]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(searchTerm));
+    })
+    .sort((firstRow, secondRow) => secondRow.totalDue - firstRow.totalDue);
+  const defaulterNotificationTotalDue = defaulterRows.reduce((sum, row) => sum + row.totalDue, 0);
+  const defaulterNotificationMembersWithContacts = defaulterRows.filter((row) => row.contact.trim()).length;
+  const defaulterNotificationMembersWithoutContacts = defaulterRows.length - defaulterNotificationMembersWithContacts;
+
   const totalMembers = members.length;
   const totalCollected = members.filter((member) => member.status === 'Paid').reduce((sum, member) => sum + member.insurancePaid, 0);
   const totalBalancePending = members.filter((member) => member.status === 'Pending').reduce((sum, member) => sum + member.insurancePaid, 0);
@@ -2810,6 +3211,304 @@ export default function DashboardPage() {
     hour: '2-digit',
     minute: '2-digit',
   });
+
+  const memberNameCounts = members.reduce<Record<string, number>>((accumulator, member) => {
+    const key = member.name.trim().toLowerCase();
+    if (!key) return accumulator;
+    accumulator[key] = (accumulator[key] || 0) + 1;
+    return accumulator;
+  }, {});
+  const duplicateMemberNameCount = Object.values(memberNameCounts).filter((count) => count > 1).length;
+  const memberNameSet = new Set(members.map((member) => member.name.trim().toLowerCase()).filter(Boolean));
+  const contributionKeyCounts = contributions.reduce<Record<string, number>>((accumulator, contribution) => {
+    const key = `${contribution.memberName.trim().toLowerCase()}::${contribution.month.trim().toLowerCase()}`;
+    if (!contribution.memberName.trim() || !contribution.month.trim()) return accumulator;
+    accumulator[key] = (accumulator[key] || 0) + 1;
+    return accumulator;
+  }, {});
+  const duplicateContributionRows = Object.values(contributionKeyCounts).filter((count) => count > 1).length;
+  const contributionsWithUnknownMembers = contributions.filter(
+    (contribution) => contribution.memberName.trim() && !memberNameSet.has(contribution.memberName.trim().toLowerCase())
+  ).length;
+  const contributionsMissingNames = contributions.filter((contribution) => !contribution.memberName.trim()).length;
+  const contributionsMissingMonths = contributions.filter((contribution) => !contribution.month.trim()).length;
+  const contributionsMissingDates = contributions.filter((contribution) => !contribution.paymentDate).length;
+  const contributionsInvalidTotals = contributions.filter((contribution) => getContributionTotal(contribution) <= 0).length;
+  const contributionsOverpaid = contributions.filter((contribution) => getContributionPaidAmount(contribution) > getContributionTotal(contribution)).length;
+  const membersMissingContact = members.filter((member) => !member.contact.trim()).length;
+  const membersMissingEmail = members.filter((member) => !member.email.trim()).length;
+  const membersMissingJoinDate = members.filter((member) => !member.joinDate).length;
+  const insuranceMissingProvider = insurancePolicies.filter((policy) => !policy.providerName?.trim()).length;
+  const insuranceMissingDates = insurancePolicies.filter((policy) => !policy.policyStartDate || !policy.policyEndDate).length;
+  const insuranceInvalidPremium = insurancePolicies.filter((policy) => toMoneyNumber(policy.premiumTarget) <= 0).length;
+  const bereavedMissingMember = bereavedCases.filter((caseItem) => !caseItem.memberName?.trim()).length;
+  const bereavedMissingContact = bereavedCases.filter((caseItem) => !caseItem.familyContact?.trim()).length;
+  const bereavedInvalidTarget = bereavedCases.filter((caseItem) => toMoneyNumber(caseItem.targetAmount) <= 0).length;
+  const openBereavedShortfalls = bereavedCases.filter(
+    (caseItem) => caseItem.status === 'Open' && toMoneyNumber(caseItem.collectedAmount) < toMoneyNumber(caseItem.targetAmount)
+  ).length;
+  const roundsMissingRecipient = merryGoRound.filter((round) => !round.recipientName?.trim()).length;
+  const roundsMissingDate = merryGoRound.filter((round) => !round.payoutDate).length;
+  const roundsInvalidPayout = merryGoRound.filter((round) => toMoneyNumber(round.payoutAmount) <= 0).length;
+  const dataHealthIssues: DataHealthIssue[] = [
+    dataLoadError
+      ? {
+          id: 'data-load-error',
+          severity: 'error',
+          module: 'System',
+          title: 'Dashboard data failed to load',
+          detail: dataLoadError,
+          count: 1,
+        }
+      : null,
+    duplicateMemberNameCount > 0
+      ? {
+          id: 'duplicate-member-names',
+          severity: 'warning',
+          module: 'Members',
+          title: 'Possible duplicate member names',
+          detail: 'Some member names appear more than once. Confirm these are not accidental duplicates.',
+          count: duplicateMemberNameCount,
+        }
+      : null,
+    membersMissingContact > 0
+      ? {
+          id: 'members-missing-contact',
+          severity: 'info',
+          module: 'Members',
+          title: 'Members missing phone/contact',
+          detail: 'Add phone/contact details for easier member follow-up.',
+          count: membersMissingContact,
+        }
+      : null,
+    membersMissingEmail > 0
+      ? {
+          id: 'members-missing-email',
+          severity: 'info',
+          module: 'Members',
+          title: 'Members missing email',
+          detail: 'Email helps connect member records with sign-in and statements.',
+          count: membersMissingEmail,
+        }
+      : null,
+    membersMissingJoinDate > 0
+      ? {
+          id: 'members-missing-join-date',
+          severity: 'info',
+          module: 'Members',
+          title: 'Members missing join date',
+          detail: 'Join dates help with statements and membership history.',
+          count: membersMissingJoinDate,
+        }
+      : null,
+    duplicateContributionRows > 0
+      ? {
+          id: 'duplicate-contribution-rows',
+          severity: 'warning',
+          module: 'Contributions',
+          title: 'Duplicate member/month contribution rows',
+          detail: 'One member appears to have more than one contribution row for the same month.',
+          count: duplicateContributionRows,
+        }
+      : null,
+    contributionsWithUnknownMembers > 0
+      ? {
+          id: 'unknown-member-contributions',
+          severity: 'warning',
+          module: 'Contributions',
+          title: 'Contributions linked to unknown members',
+          detail: 'Some contribution rows use names that do not match the member register.',
+          count: contributionsWithUnknownMembers,
+        }
+      : null,
+    contributionsMissingNames > 0
+      ? {
+          id: 'contributions-missing-names',
+          severity: 'error',
+          module: 'Contributions',
+          title: 'Contribution rows missing member name',
+          detail: 'These rows cannot be matched to member statements correctly.',
+          count: contributionsMissingNames,
+        }
+      : null,
+    contributionsMissingMonths > 0
+      ? {
+          id: 'contributions-missing-months',
+          severity: 'error',
+          module: 'Contributions',
+          title: 'Contribution rows missing month',
+          detail: 'Month is required for reports, arrears, and monthly generation checks.',
+          count: contributionsMissingMonths,
+        }
+      : null,
+    contributionsMissingDates > 0
+      ? {
+          id: 'contributions-missing-dates',
+          severity: 'info',
+          module: 'Contributions',
+          title: 'Contribution rows missing payment date',
+          detail: 'Payment dates improve auditability and monthly reporting.',
+          count: contributionsMissingDates,
+        }
+      : null,
+    contributionsInvalidTotals > 0
+      ? {
+          id: 'contributions-invalid-totals',
+          severity: 'error',
+          module: 'Contributions',
+          title: 'Contribution rows with zero/invalid expected amount',
+          detail: 'Expected amount must be greater than zero for arrears and collection rate.',
+          count: contributionsInvalidTotals,
+        }
+      : null,
+    contributionsOverpaid > 0
+      ? {
+          id: 'contributions-overpaid',
+          severity: 'warning',
+          module: 'Contributions',
+          title: 'Contribution rows where paid exceeds expected',
+          detail: 'Check paid amount versus expected amount.',
+          count: contributionsOverpaid,
+        }
+      : null,
+    unverifiedContributionCount > 0
+      ? {
+          id: 'unverified-contributions',
+          severity: 'warning',
+          module: 'Verification',
+          title: 'Payments waiting for verification',
+          detail: 'Treasurer/Admin should verify or reject pending payment records.',
+          count: unverifiedContributionCount,
+        }
+      : null,
+    rejectedContributionCount > 0
+      ? {
+          id: 'rejected-contributions',
+          severity: 'warning',
+          module: 'Verification',
+          title: 'Rejected payments need review',
+          detail: 'Rejected rows may need correction, notes, or follow-up with members.',
+          count: rejectedContributionCount,
+        }
+      : null,
+    membersWithArrears > 0
+      ? {
+          id: 'members-with-arrears',
+          severity: 'warning',
+          module: 'Arrears',
+          title: 'Members with arrears',
+          detail: 'Some members have outstanding balances.',
+          count: membersWithArrears,
+        }
+      : null,
+    insuranceMissingProvider > 0
+      ? {
+          id: 'insurance-missing-provider',
+          severity: 'error',
+          module: 'Insurance',
+          title: 'Insurance policies missing provider name',
+          detail: 'Provider names are required for policy tracking.',
+          count: insuranceMissingProvider,
+        }
+      : null,
+    insuranceMissingDates > 0
+      ? {
+          id: 'insurance-missing-dates',
+          severity: 'warning',
+          module: 'Insurance',
+          title: 'Insurance policies missing coverage dates',
+          detail: 'Start and end dates help track active/expired cover.',
+          count: insuranceMissingDates,
+        }
+      : null,
+    insuranceInvalidPremium > 0
+      ? {
+          id: 'insurance-invalid-premium',
+          severity: 'warning',
+          module: 'Insurance',
+          title: 'Insurance policies with zero/invalid premium target',
+          detail: 'Premium target should be greater than zero for financial planning.',
+          count: insuranceInvalidPremium,
+        }
+      : null,
+    bereavedMissingMember > 0
+      ? {
+          id: 'bereaved-missing-member',
+          severity: 'error',
+          module: 'Bereaved Cases',
+          title: 'Bereaved cases missing member name',
+          detail: 'Member name is required for case tracking.',
+          count: bereavedMissingMember,
+        }
+      : null,
+    bereavedMissingContact > 0
+      ? {
+          id: 'bereaved-missing-contact',
+          severity: 'info',
+          module: 'Bereaved Cases',
+          title: 'Bereaved cases missing family contact',
+          detail: 'Family contact helps with payment and support coordination.',
+          count: bereavedMissingContact,
+        }
+      : null,
+    bereavedInvalidTarget > 0
+      ? {
+          id: 'bereaved-invalid-target',
+          severity: 'warning',
+          module: 'Bereaved Cases',
+          title: 'Bereaved cases with zero/invalid target amount',
+          detail: 'Target amount should be set for collection progress tracking.',
+          count: bereavedInvalidTarget,
+        }
+      : null,
+    openBereavedShortfalls > 0
+      ? {
+          id: 'open-bereaved-shortfalls',
+          severity: 'warning',
+          module: 'Bereaved Cases',
+          title: 'Open bereaved cases below target',
+          detail: 'These cases are still open and have not reached the target amount.',
+          count: openBereavedShortfalls,
+        }
+      : null,
+    roundsMissingRecipient > 0
+      ? {
+          id: 'rounds-missing-recipient',
+          severity: 'error',
+          module: 'Merry-Go-Round',
+          title: 'Rounds missing recipient name',
+          detail: 'Recipient name is required for the payout schedule.',
+          count: roundsMissingRecipient,
+        }
+      : null,
+    roundsMissingDate > 0
+      ? {
+          id: 'rounds-missing-date',
+          severity: 'warning',
+          module: 'Merry-Go-Round',
+          title: 'Rounds missing payout date',
+          detail: 'Payout date should be set for schedule planning.',
+          count: roundsMissingDate,
+        }
+      : null,
+    roundsInvalidPayout > 0
+      ? {
+          id: 'rounds-invalid-payout',
+          severity: 'warning',
+          module: 'Merry-Go-Round',
+          title: 'Rounds with zero/invalid payout amount',
+          detail: 'Payout amount should be greater than zero.',
+          count: roundsInvalidPayout,
+        }
+      : null,
+  ].filter((issue): issue is DataHealthIssue => Boolean(issue));
+  const dataHealthErrorCount = dataHealthIssues.filter((issue) => issue.severity === 'error').length;
+  const dataHealthWarningCount = dataHealthIssues.filter((issue) => issue.severity === 'warning').length;
+  const dataHealthInfoCount = dataHealthIssues.filter((issue) => issue.severity === 'info').length;
+  const totalDataRecords = members.length + contributions.length + merryGoRound.length + insurancePolicies.length + bereavedCases.length;
+  const lastDataRefreshLabel = lastDataRefreshAt
+    ? new Date(lastDataRefreshAt).toLocaleString('en-KE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+    : 'Not refreshed yet';
 
   const chartColors = isLightTheme
     ? ['#0284c7', '#059669', '#d97706', '#dc2626', '#7c3aed', '#0891b2']
@@ -3098,7 +3797,8 @@ export default function DashboardPage() {
             <p className="text-xs text-slate-400">UID: <span className="font-mono">{currentUser.uid}</span></p>
           </div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 lg:flex lg:flex-wrap lg:justify-end">
-            <button onClick={handleThemeToggle} className="rounded-2xl border border-cyan-300/25 bg-cyan-400/15 px-4 py-3 text-sm font-black text-cyan-100 shadow-lg shadow-cyan-950/20 backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-cyan-400/25" type="button" aria-pressed={isLightTheme}>
+            <button onClick={handleThemeToggle} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-cyan-300/25 bg-cyan-400/15 px-4 py-3 text-sm font-black text-cyan-100 shadow-lg shadow-cyan-950/20 backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-cyan-400/25" type="button" aria-pressed={isLightTheme}>
+              {isLightTheme ? <Moon className="h-4 w-4" aria-hidden="true" /> : <Sun className="h-4 w-4" aria-hidden="true" />}
               {isLightTheme ? 'Dark Mode' : 'Light Mode'}
             </button>
             <button disabled={!canViewReports} onClick={exportContributionsCsv} className="rounded-2xl border border-emerald-300/25 bg-emerald-400/18 px-4 py-3 text-sm font-black text-emerald-100 shadow-lg shadow-emerald-950/20 backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-emerald-400/28 disabled:cursor-not-allowed disabled:opacity-40" type="button">
@@ -3121,8 +3821,11 @@ export default function DashboardPage() {
           canManageMembers ? 'Role Management' : '',
           canManageMembers ? 'Access Requests' : '',
           'Stats',
+          'Data Health & Errors',
+          canManageFinance ? 'Defaulter Notifications' : '',
           'Charts & Analytics',
           'Monthly Contributors',
+          canManageFinance ? 'Member Search' : '',
           'Member Statement',
           'Reports & Exports',
           'Audit Logs',
@@ -3244,8 +3947,9 @@ export default function DashboardPage() {
                 <button
                   type="button"
                   onClick={handleThemeToggle}
-                  className="mt-4 w-full rounded-2xl border border-cyan-300/25 bg-cyan-400/15 px-4 py-3 text-sm font-black text-cyan-100 shadow-lg shadow-cyan-950/20 transition hover:-translate-y-0.5 hover:bg-cyan-400/25"
+                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-cyan-300/25 bg-cyan-400/15 px-4 py-3 text-sm font-black text-cyan-100 shadow-lg shadow-cyan-950/20 transition hover:-translate-y-0.5 hover:bg-cyan-400/25"
                 >
+                  {isLightTheme ? <Moon className="h-4 w-4" aria-hidden="true" /> : <Sun className="h-4 w-4" aria-hidden="true" />}
                   Switch to {isLightTheme ? 'Dark' : 'Light'} Mode
                 </button>
               </div>
@@ -3526,6 +4230,275 @@ export default function DashboardPage() {
             </div>
           }
         />
+
+        <Module
+          title="Data Health & Errors"
+          content={
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+                <StatCard title="Records Checked" value={totalDataRecords} detail="Members, contributions, rounds, insurance, and bereaved cases" />
+                <StatCard title="Errors" value={dataHealthErrorCount} detail="Must fix before production handover" />
+                <StatCard title="Warnings" value={dataHealthWarningCount} detail="Needs review before reports are shared" />
+                <StatCard title="Info" value={dataHealthInfoCount} detail="Useful cleanup recommendations" />
+                <StatCard title="Last Refresh" value={lastDataRefreshLabel} detail={isRefreshingData ? 'Refreshing data now...' : 'Latest dashboard data load'} />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 rounded-3xl border border-white/10 bg-white/[0.055] p-4 sm:grid-cols-[1fr_auto] sm:items-center">
+                <div>
+                  <p className="text-sm font-black tracking-tight text-white">Data loading and validation center</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-300">
+                    Use this module to refresh Firestore data, inspect data quality issues, and export a cleanup report before production deployment.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={handleRefreshDashboardData}
+                    disabled={isRefreshingData}
+                    className="rounded-2xl border border-cyan-300/25 bg-cyan-400/15 px-4 py-3 text-sm font-black text-cyan-100 shadow-lg shadow-cyan-950/20 transition hover:-translate-y-0.5 hover:bg-cyan-400/25 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isRefreshingData ? 'Refreshing...' : 'Refresh Data'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={exportDataHealthCsv}
+                    disabled={dataHealthIssues.length === 0 || !canViewReports}
+                    className="rounded-2xl border border-emerald-300/25 bg-emerald-400/15 px-4 py-3 text-sm font-black text-emerald-100 shadow-lg shadow-emerald-950/20 transition hover:-translate-y-0.5 hover:bg-emerald-400/25 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Export Health CSV
+                  </button>
+                </div>
+              </div>
+
+              {dataLoadError ? (
+                <div className="rounded-3xl border border-rose-300/30 bg-rose-400/10 p-4 text-rose-50 shadow-xl shadow-rose-950/20">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.22em] text-rose-200">Data load error</p>
+                      <p className="mt-2 text-sm leading-6 text-rose-50">{dataLoadError}</p>
+                      <p className="mt-1 text-xs text-rose-100/75">Check Firebase rules, internet connection, and signed-in role permissions.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={clearDataLoadError}
+                      className="rounded-2xl border border-rose-200/25 bg-rose-300/10 px-4 py-2 text-xs font-black text-rose-50"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="space-y-3">
+                {dataHealthIssues.length === 0 ? (
+                  <div className="rounded-3xl border border-emerald-300/20 bg-emerald-400/10 p-5 text-sm text-emerald-50">
+                    <p className="font-black">No data health issues found.</p>
+                    <p className="mt-1 text-emerald-100/80">The current records look consistent based on the built-in checks.</p>
+                  </div>
+                ) : (
+                  dataHealthIssues.map((issue) => (
+                    <div
+                      key={issue.id}
+                      className={`rounded-3xl border p-4 shadow-xl shadow-black/10 ${
+                        issue.severity === 'error'
+                          ? 'border-rose-300/30 bg-rose-400/10'
+                          : issue.severity === 'warning'
+                            ? 'border-amber-300/30 bg-amber-400/10'
+                            : 'border-cyan-300/25 bg-cyan-400/10'
+                      }`}
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={`rounded-full border px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.14em] ${
+                                issue.severity === 'error'
+                                  ? 'border-rose-300/30 bg-rose-400/10 text-rose-200'
+                                  : issue.severity === 'warning'
+                                    ? 'border-amber-300/30 bg-amber-400/10 text-amber-200'
+                                    : 'border-cyan-300/30 bg-cyan-400/10 text-cyan-200'
+                              }`}
+                            >
+                              {issue.severity}
+                            </span>
+                            <span className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.14em] text-slate-300">
+                              {issue.module}
+                            </span>
+                          </div>
+                          <p className="mt-3 text-base font-black tracking-tight text-white">{issue.title}</p>
+                          <p className="mt-1 text-sm leading-6 text-slate-300">{issue.detail}</p>
+                        </div>
+                        <div className="shrink-0 rounded-2xl border border-white/10 bg-black/15 px-4 py-3 text-center">
+                          <p className="text-2xl font-black text-white">{issue.count}</p>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">records</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          }
+        />
+
+        {canManageFinance ? (
+        <Module
+          title="Defaulter Notifications"
+          content={
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <StatCard title="Defaulters" value={defaulterRows.length} detail="Members with outstanding remittance balances" />
+                <StatCard title="Outstanding Total" value={formatCurrency(defaulterNotificationTotalDue)} detail="Across selected month/filter" />
+                <StatCard title="With Contacts" value={defaulterNotificationMembersWithContacts} detail="Can open WhatsApp reminder links" />
+                <StatCard title="Missing Contacts" value={defaulterNotificationMembersWithoutContacts} detail="Update member contact before notifying" />
+              </div>
+
+              <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.05] p-4">
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.2fr_0.8fr_0.8fr_auto_auto]">
+                  <label className="block">
+                    <span className="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-slate-400"><Search className="h-3.5 w-3.5" aria-hidden="true" /> Search defaulters</span>
+                    <input
+                      type="search"
+                      value={defaulterNotificationSearch}
+                      onChange={(event) => setDefaulterNotificationSearch(event.target.value)}
+                      className="w-full rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/20"
+                      placeholder="Search name, email, phone, or month..."
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-2 block text-xs font-black uppercase tracking-[0.18em] text-slate-400">Month</span>
+                    <select
+                      value={defaulterNotificationMonth}
+                      onChange={(event) => setDefaulterNotificationMonth(event.target.value)}
+                      className="w-full rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white outline-none transition focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/20"
+                    >
+                      <option value="All">All months</option>
+                      {contributionMonthsForNotifications.map((month) => (
+                        <option key={month} value={month}>{month}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-2 block text-xs font-black uppercase tracking-[0.18em] text-slate-400">Minimum Due</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={defaulterMinimumBalance}
+                      onChange={(event) => setDefaulterMinimumBalance(event.target.value)}
+                      className="w-full rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/20"
+                      placeholder="1"
+                    />
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={copyAllDefaulterMessages}
+                    disabled={defaulterRows.length === 0}
+                    className="self-end rounded-2xl border border-cyan-300/25 bg-cyan-400/15 px-4 py-3 text-sm font-black text-cyan-100 shadow-lg shadow-cyan-950/20 transition hover:-translate-y-0.5 hover:bg-cyan-400/25 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Copy All
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={exportDefaulterNotificationsCsv}
+                    disabled={defaulterRows.length === 0}
+                    className="self-end rounded-2xl border border-emerald-300/25 bg-emerald-400/15 px-4 py-3 text-sm font-black text-emerald-100 shadow-lg shadow-emerald-950/20 transition hover:-translate-y-0.5 hover:bg-emerald-400/25 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Export CSV
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+                {defaulterRows.map((row) => (
+                  <article key={`${row.memberId || row.memberName}-${row.months.join('-')}`} className="rounded-[1.65rem] border border-amber-300/20 bg-amber-400/10 p-4 shadow-xl shadow-black/15">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="text-xs font-black uppercase tracking-[0.22em] text-amber-200">Defaulter Reminder</p>
+                        <h3 className="mt-1 break-words text-xl font-black text-white">{row.memberName}</h3>
+                        <p className="mt-1 break-words text-sm text-slate-300">{row.contact || 'No contact saved'} {row.email ? `• ${row.email}` : ''}</p>
+                        <p className="mt-1 text-xs text-slate-400">Months: {row.months.join(', ') || 'Not set'}</p>
+                      </div>
+                      <div className="rounded-2xl border border-amber-300/20 bg-black/15 p-3 text-right">
+                        <p className="text-xs font-black uppercase tracking-[0.16em] text-amber-200">Outstanding</p>
+                        <p className="mt-1 text-2xl font-black text-amber-100">{formatCurrency(row.totalDue)}</p>
+                        <p className="mt-1 text-xs text-slate-400">Paid {formatCurrency(row.totalPaid)} / {formatCurrency(row.totalExpected)}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <div className="rounded-2xl border border-white/10 bg-black/15 p-3">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Welfare</p>
+                        <p className="mt-1 text-sm font-black text-white">{formatCurrency(row.welfareDue)}</p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/15 p-3">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Merry</p>
+                        <p className="mt-1 text-sm font-black text-white">{formatCurrency(row.merryGoRoundDue)}</p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/15 p-3">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Insurance</p>
+                        <p className="mt-1 text-sm font-black text-white">{formatCurrency(row.insuranceDue)}</p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/15 p-3">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Bereaved</p>
+                        <p className="mt-1 text-sm font-black text-white">{formatCurrency(row.bereavedFamilyDue)}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 rounded-2xl border border-white/10 bg-black/15 p-3">
+                      <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Generated Message</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-200">{getDefaulterMessage(row)}</p>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => copyDefaulterMessage(row)}
+                        className="rounded-full border border-cyan-300/25 bg-cyan-400/15 px-4 py-2 text-xs font-black text-cyan-100 transition hover:bg-cyan-400/25"
+                      >
+                        Copy Message
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openDefaulterWhatsApp(row)}
+                        disabled={!row.contact.trim()}
+                        className="rounded-full border border-emerald-300/25 bg-emerald-400/15 px-4 py-2 text-xs font-black text-emerald-100 transition hover:bg-emerald-400/25 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Open WhatsApp
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMemberProfileSearch(row.memberName);
+                          setSelectedMemberProfileId(row.memberId);
+                          setStatementMemberName(row.memberName);
+                          notify(`Opened profile context for ${row.memberName}.`, 'info');
+                        }}
+                        className="rounded-full border border-white/10 bg-white/[0.08] px-4 py-2 text-xs font-black text-slate-100 transition hover:bg-white/[0.14]"
+                      >
+                        View Member
+                      </button>
+                    </div>
+                  </article>
+                ))}
+
+                {defaulterRows.length === 0 ? (
+                  <div className="xl:col-span-2 rounded-[1.65rem] border border-emerald-300/20 bg-emerald-400/10 p-6 text-center">
+                    <p className="text-sm font-black uppercase tracking-[0.22em] text-emerald-200">No defaulters found</p>
+                    <h3 className="mt-2 text-2xl font-black text-white">All filtered remittances are clear</h3>
+                    <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-slate-300">
+                      Change the month, search term, or minimum due filter if you expected to see outstanding balances.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          }
+        />
+        ) : null}
 
         <Module
           title="Charts & Analytics"
@@ -4179,6 +5152,243 @@ export default function DashboardPage() {
               </div>
             }
           />
+
+          {canManageFinance ? (
+          <div className="lg:col-span-2">
+            <Module
+              title="Member Search"
+              content={
+                <div className="grid grid-cols-1 gap-5 xl:grid-cols-[0.9fr_1.6fr]">
+                  <div className="space-y-4">
+                    <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.05] p-4">
+                      <label className="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-slate-400"><Search className="h-3.5 w-3.5" aria-hidden="true" /> Search personal data</label>
+                      <input
+                        type="search"
+                        value={memberProfileSearch}
+                        onChange={(event) => {
+                          setMemberProfileSearch(event.target.value);
+                          setSelectedMemberProfileId('');
+                        }}
+                        className="w-full rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/20"
+                        placeholder="Search by name, email, phone, status, or join date..."
+                      />
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+                        <span>{memberProfileMatches.length} matching member(s)</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMemberProfileSearch('');
+                            setSelectedMemberProfileId('');
+                          }}
+                          className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 font-bold text-slate-200 transition hover:bg-white/[0.12]"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="max-h-[34rem] space-y-2 overflow-y-auto rounded-[1.5rem] border border-white/10 bg-black/10 p-2">
+                      {memberProfileMatches.map((member) => {
+                        const isSelected = selectedMemberProfile?.id === member.id;
+
+                        return (
+                          <button
+                            key={member.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedMemberProfileId(member.id);
+                              setStatementMemberName(member.name);
+                            }}
+                            className={`w-full rounded-2xl border p-3 text-left transition hover:-translate-y-0.5 ${
+                              isSelected
+                                ? 'border-cyan-300/35 bg-cyan-400/15 shadow-lg shadow-cyan-950/20'
+                                : 'border-white/10 bg-white/[0.045] hover:bg-white/[0.08]'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-black text-white">{member.name || 'Unnamed member'}</p>
+                                <p className="mt-1 truncate text-xs text-slate-400">{member.email || 'No email'}</p>
+                                <p className="truncate text-xs text-slate-500">{member.contact || 'No contact'}</p>
+                              </div>
+                              <span className={`shrink-0 rounded-full border px-2 py-1 text-[11px] font-black ${
+                                member.status === 'Paid'
+                                  ? 'border-emerald-300/20 bg-emerald-400/10 text-emerald-300'
+                                  : 'border-amber-300/20 bg-amber-400/10 text-amber-300'
+                              }`}>
+                                {member.status}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })}
+
+                      {memberProfileMatches.length === 0 ? (
+                        <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 text-center text-sm text-slate-400">
+                          No members match this search.
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    {selectedMemberProfile ? (
+                      <>
+                        <div className="rounded-[1.75rem] border border-cyan-300/20 bg-cyan-400/10 p-5 shadow-xl shadow-cyan-950/10">
+                          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                            <div className="min-w-0">
+                              <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-200">Member profile</p>
+                              <h3 className="mt-2 break-words text-2xl font-black tracking-tight text-white">{selectedMemberProfile.name}</h3>
+                              <p className="mt-1 break-words text-sm text-slate-300">{selectedMemberProfile.email || 'No email saved'}</p>
+                              <p className="break-words text-sm text-slate-400">{selectedMemberProfile.contact || 'No phone/contact saved'}</p>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3 lg:min-w-[22rem]">
+                              <div className="rounded-2xl border border-white/10 bg-black/15 p-3">
+                                <p className="font-bold uppercase tracking-[0.16em] text-slate-400">Member ID</p>
+                                <p className="mt-1 truncate font-mono text-slate-100">{selectedMemberProfile.id}</p>
+                              </div>
+                              <div className="rounded-2xl border border-white/10 bg-black/15 p-3">
+                                <p className="font-bold uppercase tracking-[0.16em] text-slate-400">Joined</p>
+                                <p className="mt-1 font-black text-slate-100">{formatCalendarDate(selectedMemberProfile.joinDate)}</p>
+                              </div>
+                              <div className="rounded-2xl border border-white/10 bg-black/15 p-3">
+                                <p className="font-bold uppercase tracking-[0.16em] text-slate-400">App Role</p>
+                                <p className="mt-1 font-black text-slate-100">{memberProfileRoleRecord?.role || 'Not linked'}</p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                          <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3">
+                            <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Insurance Paid</p>
+                            <p className="mt-1 text-lg font-black text-emerald-300">{formatCurrency(selectedMemberProfile.insurancePaid)}</p>
+                            <p className="mt-1 text-[11px] text-slate-500">{selectedMemberProfile.status}</p>
+                          </div>
+                          <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3">
+                            <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Expected</p>
+                            <p className="mt-1 text-lg font-black text-emerald-300">{formatCurrency(memberProfileExpectedTotal)}</p>
+                          </div>
+                          <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3">
+                            <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Paid</p>
+                            <p className="mt-1 text-lg font-black text-cyan-300">{formatCurrency(memberProfilePaidTotal)}</p>
+                          </div>
+                          <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3">
+                            <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Arrears</p>
+                            <p className="mt-1 text-lg font-black text-amber-300">{formatCurrency(memberProfileArrearsTotal)}</p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                          <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
+                            <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Contribution Rows</p>
+                            <p className="mt-1 text-2xl font-black text-white">{memberProfileContributions.length}</p>
+                            <p className="mt-1 text-xs text-slate-400">{memberProfileVerifiedCount} verified • {memberProfilePendingReviewCount} pending review</p>
+                          </div>
+                          <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
+                            <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Latest Payment</p>
+                            <p className="mt-1 text-lg font-black text-white">{memberProfileLatestPayment ? formatCalendarDate(memberProfileLatestPayment.paymentDate || memberProfileLatestPayment.createdAt) : 'No payment'}</p>
+                            <p className="mt-1 text-xs text-slate-400">{memberProfileLatestPayment?.month || 'No month available'}</p>
+                          </div>
+                          <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
+                            <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Linked Records</p>
+                            <p className="mt-1 text-lg font-black text-white">{memberProfileBereavedCases.length + memberProfileMerryGoRoundRounds.length}</p>
+                            <p className="mt-1 text-xs text-slate-400">{memberProfileBereavedCases.length} bereaved • {memberProfileMerryGoRoundRounds.length} merry-go-round</p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                          <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.045] p-4">
+                            <div className="mb-3 flex items-center justify-between gap-3">
+                              <h4 className="text-sm font-black text-white">Recent Contribution History</h4>
+                              <button
+                                type="button"
+                                onClick={() => setStatementMemberName(selectedMemberProfile.name)}
+                                className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-xs font-bold text-cyan-200"
+                              >
+                                Open Statement
+                              </button>
+                            </div>
+                            <div className="space-y-2">
+                              {memberProfileContributions.slice(0, 6).map((contribution) => {
+                                const verificationStatus = normalizeVerificationStatus(contribution.verificationStatus);
+
+                                return (
+                                  <div key={contribution.id} className="rounded-2xl border border-white/10 bg-black/15 p-3">
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div>
+                                        <p className="text-sm font-black text-white">{contribution.month}</p>
+                                        <p className="mt-1 text-xs text-slate-400">{formatCalendarDate(contribution.paymentDate)}</p>
+                                      </div>
+                                      <div className="text-right">
+                                        <p className="text-sm font-black text-cyan-300">{formatCurrency(getContributionPaidAmount(contribution))}</p>
+                                        <p className="text-xs text-amber-300">Arrears: {formatCurrency(getContributionBalance(contribution))}</p>
+                                      </div>
+                                    </div>
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      <span className={`rounded-full border px-2 py-1 text-[11px] font-bold ${contribution.paymentStatus === 'Paid' ? 'border-emerald-300/20 bg-emerald-400/10 text-emerald-300' : 'border-amber-300/20 bg-amber-400/10 text-amber-300'}`}>
+                                        {contribution.paymentStatus}
+                                      </span>
+                                      <span className={`rounded-full border px-2 py-1 text-[11px] font-bold ${
+                                        verificationStatus === 'Verified'
+                                          ? 'border-emerald-300/20 bg-emerald-400/10 text-emerald-300'
+                                          : verificationStatus === 'Rejected'
+                                            ? 'border-rose-300/20 bg-rose-400/10 text-rose-300'
+                                            : 'border-slate-300/20 bg-slate-400/10 text-slate-300'
+                                      }`}>
+                                        {verificationStatus}
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+
+                              {memberProfileContributions.length === 0 ? (
+                                <div className="rounded-2xl border border-white/10 bg-black/15 p-4 text-center text-sm text-slate-400">
+                                  No contribution records found for this member.
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.045] p-4">
+                            <h4 className="mb-3 text-sm font-black text-white">Personal Data Checklist</h4>
+                            <div className="space-y-2 text-sm">
+                              {[
+                                ['Name', selectedMemberProfile.name],
+                                ['Email', selectedMemberProfile.email],
+                                ['Phone / Contact', selectedMemberProfile.contact],
+                                ['Join Date', selectedMemberProfile.joinDate],
+                                ['Role Link', memberProfileRoleRecord?.role || ''],
+                              ].map(([label, value]) => (
+                                <div key={label} className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/15 p-3">
+                                  <span className="font-semibold text-slate-300">{label}</span>
+                                  <span className={`text-right text-xs font-black ${value ? 'text-emerald-300' : 'text-amber-300'}`}>
+                                    {value ? 'Available' : 'Missing'}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="grid min-h-[28rem] place-items-center rounded-[1.75rem] border border-white/10 bg-white/[0.045] p-8 text-center">
+                        <div>
+                          <p className="text-sm font-black uppercase tracking-[0.22em] text-cyan-300">Member search</p>
+                          <h3 className="mt-2 text-2xl font-black text-white">Select a member to view personal data</h3>
+                          <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-400">
+                            Search by name, email, phone/contact, status, or join date. The profile view combines member details, role linkage, contributions, arrears, verification, and linked support records.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              }
+            />
+          </div>
+          ) : null}
 
           <div className="lg:col-span-2">
             <Module
