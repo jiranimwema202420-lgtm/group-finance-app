@@ -810,6 +810,7 @@ export default function DashboardPage() {
   const [accessRequestSearch, setAccessRequestSearch] = useState('');
   const [accessRequestStatusFilter, setAccessRequestStatusFilter] = useState<'All' | AccessRequestStatus>('All');
   const [accessApprovalRoles, setAccessApprovalRoles] = useState<Record<string, ManagedUserRole>>({});
+  const [accessReviewNotes, setAccessReviewNotes] = useState<Record<string, string>>({});
   const [auditModuleFilter, setAuditModuleFilter] = useState('All');
   const [auditSearch, setAuditSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -1005,10 +1006,35 @@ export default function DashboardPage() {
 
   const handleSignIn = async () => {
     try {
+      window.localStorage.setItem('jirani-mwema-login-intent', 'member');
       await signInWithPopup(auth, googleProvider);
+      notify('Signed in successfully. Checking your access level...', 'info');
     } catch (error) {
       console.error('Failed to sign in:', error);
       notify('Failed to sign in with Google.', 'error');
+    }
+  };
+
+  const handleAdminSignIn = async () => {
+    try {
+      window.localStorage.setItem('jirani-mwema-login-intent', 'admin');
+      const result = await signInWithPopup(auth, googleProvider);
+      const resolvedRole = await resolveSignedInRole(result.user);
+
+      if (resolvedRole !== 'Admin') {
+        await signOut(auth);
+        setCurrentUser(null);
+        setCurrentUserRole('Guest');
+        notify('Admin login denied. This Google account is not registered as an Admin.', 'error');
+        return;
+      }
+
+      setCurrentUser(result.user);
+      setCurrentUserRole('Admin');
+      notify('Admin login successful. Admin workspace unlocked.', 'success');
+    } catch (error) {
+      console.error('Failed to sign in as Admin:', error);
+      notify('Failed to sign in as Admin with Google.', 'error');
     }
   };
 
@@ -1409,6 +1435,27 @@ export default function DashboardPage() {
   };
 
 
+  const findMemberRecordForAccessRequest = (requestItem: AccessRequest) => {
+    const requestEmail = requestItem.email.trim().toLowerCase();
+    const requestName = requestItem.displayName.trim().toLowerCase();
+
+    return members.find((member) => {
+      const memberEmail = member.email.trim().toLowerCase();
+      const memberName = member.name.trim().toLowerCase();
+
+      return (
+        (!!requestEmail && memberEmail === requestEmail) ||
+        (!!requestName && memberName === requestName)
+      );
+    });
+  };
+
+  const findRoleRecordForAccessRequest = (requestItem: AccessRequest) =>
+    roleMemberships.find((membership) => membership.uid === requestItem.uid);
+
+  const getAccessReviewNote = (requestId: string, fallback = '') =>
+    (accessReviewNotes[requestId] || fallback).trim();
+
   const handleAccessRequestSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
 
@@ -1457,53 +1504,112 @@ export default function DashboardPage() {
   const handleApproveAccessRequest = async (requestItem: AccessRequest) => {
     if (!requireRole('Admin', 'approve access requests')) return;
 
+    if (requestItem.status !== 'Pending') {
+      notify('Only pending access requests can be approved.', 'warning');
+      return;
+    }
+
+    if (!requestItem.uid || !requestItem.email) {
+      notify('This request is missing a UID or email. Ask the user to sign in and submit again.', 'error');
+      return;
+    }
+
     const role = accessApprovalRoles[requestItem.id] || requestItem.requestedRole || 'Member';
     const now = new Date().toISOString();
+    const existingRoleRecord = findRoleRecordForAccessRequest(requestItem);
+    const existingMemberRecord = findMemberRecordForAccessRequest(requestItem);
+    const approvalNote = getAccessReviewNote(requestItem.id, `Approved as ${role}`);
+    const memberDocumentId = existingMemberRecord?.id || requestItem.uid;
+    const memberPayload = {
+      name: existingMemberRecord?.name || requestItem.displayName || requestItem.email,
+      email: existingMemberRecord?.email || requestItem.email,
+      contact: existingMemberRecord?.contact || requestItem.phone,
+      insurancePaid: existingMemberRecord?.insurancePaid || 0,
+      status: existingMemberRecord?.status || 'Pending',
+      joinDate: existingMemberRecord?.joinDate || todayIso(),
+      updatedAt: now,
+      ...(existingMemberRecord?.id ? {} : { createdAt: now }),
+    };
+
     const membership: RoleMembership = {
       id: requestItem.uid,
       uid: requestItem.uid,
       email: requestItem.email,
-      displayName: requestItem.displayName,
+      displayName: requestItem.displayName || requestItem.email,
       role,
       status: 'active',
       groupId: CURRENT_GROUP_ID,
-      createdAt: now,
+      createdAt: existingRoleRecord?.createdAt || now,
       updatedAt: now,
-      createdBy: actorName,
+      createdBy: existingRoleRecord?.createdBy || actorName,
       updatedBy: actorName,
     };
 
     setProcessingAccessRequestId(requestItem.id);
     try {
-      await saveRoleMembership(membership);
-      await updateDoc(doc(db, 'groups', CURRENT_GROUP_ID, 'accessRequests', requestItem.id), {
-        status: 'Approved',
-        approvedRole: role,
-        reviewedAt: now,
-        reviewedBy: actorName,
-        adminNotes: `Approved as ${role}`,
-        updatedAt: now,
-      });
+      await Promise.all([
+        saveRoleMembership(membership),
+        setDoc(doc(db, 'groups', CURRENT_GROUP_ID, 'members', memberDocumentId), memberPayload, { merge: true }),
+        updateDoc(doc(db, 'groups', CURRENT_GROUP_ID, 'accessRequests', requestItem.id), {
+          status: 'Approved',
+          approvedRole: role,
+          reviewedAt: now,
+          reviewedBy: actorName,
+          adminNotes: approvalNote,
+          linkedMemberId: memberDocumentId,
+          updatedAt: now,
+        }),
+      ]);
 
       upsertRoleMembershipState(membership);
+      setMembers((previous) => {
+        const nextMember: Member = {
+          id: memberDocumentId,
+          name: memberPayload.name,
+          email: memberPayload.email,
+          contact: memberPayload.contact,
+          insurancePaid: toMoneyNumber(memberPayload.insurancePaid),
+          status: memberPayload.status as PaymentStatus,
+          joinDate: memberPayload.joinDate,
+        };
+
+        const next = previous.some((member) => member.id === memberDocumentId)
+          ? previous.map((member) => (member.id === memberDocumentId ? nextMember : member))
+          : [...previous, nextMember];
+
+        return next.sort((first, second) => first.name.localeCompare(second.name));
+      });
       setAccessRequests((previous) =>
         previous.map((item) =>
           item.id === requestItem.id
-            ? { ...item, status: 'Approved', approvedRole: role, reviewedAt: now, reviewedBy: actorName, adminNotes: `Approved as ${role}`, updatedAt: now }
+            ? {
+                ...item,
+                status: 'Approved',
+                approvedRole: role,
+                reviewedAt: now,
+                reviewedBy: actorName,
+                adminNotes: approvalNote,
+                updatedAt: now,
+              }
             : item
         )
       );
+      setAccessReviewNotes((previous) => {
+        const next = { ...previous };
+        delete next[requestItem.id];
+        return next;
+      });
       await writeAuditLog({
-        action: 'Approve Access Request',
+        action: existingRoleRecord ? 'Approve Access Request and Update Role' : 'Approve Access Request',
         module: 'Access Requests',
         targetId: requestItem.uid,
         targetName: requestItem.email || requestItem.displayName,
-        details: `${requestItem.displayName || requestItem.email} approved as ${role}.`,
+        details: `${requestItem.displayName || requestItem.email} approved as ${role}. Member finance record ${existingMemberRecord ? 'updated' : 'created'} as ${memberDocumentId}. Note: ${approvalNote}`,
       });
-      notify(`${requestItem.displayName || requestItem.email} approved as ${role}.`, 'success');
+      notify(`${requestItem.displayName || requestItem.email} approved as ${role} and linked to member records.`, 'success');
     } catch (error) {
       console.error('Failed to approve access request:', error);
-      notify('Failed to approve access request. Confirm Step 12 rules are deployed.', 'error');
+      notify('Failed to approve access request. Confirm Firestore rules allow Admin to write memberships, members, and accessRequests.', 'error');
     } finally {
       setProcessingAccessRequestId(null);
     }
@@ -1512,7 +1618,12 @@ export default function DashboardPage() {
   const handleRejectAccessRequest = async (requestItem: AccessRequest) => {
     if (!requireRole('Admin', 'reject access requests')) return;
 
-    const adminNotes = window.prompt('Reason for rejection?', 'Not approved at this time.') || 'Rejected by Admin';
+    if (requestItem.status !== 'Pending') {
+      notify('Only pending access requests can be rejected.', 'warning');
+      return;
+    }
+
+    const adminNotes = getAccessReviewNote(requestItem.id, 'Rejected by Admin');
     const now = new Date().toISOString();
 
     setProcessingAccessRequestId(requestItem.id);
@@ -1532,6 +1643,11 @@ export default function DashboardPage() {
             : item
         )
       );
+      setAccessReviewNotes((previous) => {
+        const next = { ...previous };
+        delete next[requestItem.id];
+        return next;
+      });
       await writeAuditLog({
         action: 'Reject Access Request',
         module: 'Access Requests',
@@ -1539,6 +1655,7 @@ export default function DashboardPage() {
         targetName: requestItem.email || requestItem.displayName,
         details: `${requestItem.displayName || requestItem.email} rejected. Reason: ${adminNotes}`,
       });
+      notify(`${requestItem.displayName || requestItem.email} rejected.`, 'success');
     } catch (error) {
       console.error('Failed to reject access request:', error);
       notify('Failed to reject access request.', 'error');
@@ -3200,6 +3317,8 @@ export default function DashboardPage() {
   const pendingAccessRequestCount = accessRequests.filter((requestItem) => requestItem.status === 'Pending').length;
   const approvedAccessRequestCount = accessRequests.filter((requestItem) => requestItem.status === 'Approved').length;
   const rejectedAccessRequestCount = accessRequests.filter((requestItem) => requestItem.status === 'Rejected').length;
+  const approvedRequestsMissingMemberRecordCount = accessRequests.filter((requestItem) => requestItem.status === 'Approved' && !findMemberRecordForAccessRequest(requestItem)).length;
+  const pendingRequestsWithExistingRoleCount = accessRequests.filter((requestItem) => requestItem.status === 'Pending' && !!findRoleRecordForAccessRequest(requestItem)).length;
   const myAccessRequest = currentUser ? accessRequests.find((requestItem) => requestItem.uid === currentUser.uid) : undefined;
   const contributionCollectionRate = totalMonthlyContributions > 0 ? Math.round((paidMonthlyContributions / totalMonthlyContributions) * 100) : 0;
   const verificationRate = contributions.length > 0 ? Math.round((verifiedContributionCount / contributions.length) * 100) : 0;
@@ -3616,82 +3735,262 @@ export default function DashboardPage() {
   }
 
   if (!currentUser) {
+    const landingFeatureCards = [
+      {
+        title: 'Monthly Contributions',
+        detail: 'Track welfare, merry-go-round, insurance, bereavement support, paid amounts, balances, and arrears.',
+        icon: BarChart3,
+      },
+      {
+        title: 'Payment Verification',
+        detail: 'Treasurer and Admin users can verify, reject, and review member payments with notes.',
+        icon: ShieldCheck,
+      },
+      {
+        title: 'Member Notifications',
+        detail: 'Generate WhatsApp-ready reminders for members with outstanding remittance balances.',
+        icon: BellRing,
+      },
+      {
+        title: 'Member Search',
+        detail: 'Admin and Treasurer can quickly find individual member records, statements, and arrears.',
+        icon: UserSearch,
+      },
+    ];
+
+    const landingTrustCards = [
+      ['Role-Based Access', 'Admin, Treasurer, Chairperson, and Member permissions'],
+      ['Audit Ready', 'Important actions are recorded for accountability'],
+      ['Mobile First', 'Designed for phone-first daily group operations'],
+    ];
+
     return (
       <div className={`${themeShellClass} relative min-h-dvh overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.28),_transparent_34%),radial-gradient(circle_at_85%_10%,_rgba(168,85,247,0.20),_transparent_35%),radial-gradient(circle_at_50%_100%,_rgba(16,185,129,0.10),_transparent_38%),linear-gradient(135deg,#020617,#0f172a_48%,#111827)] px-3 py-3 text-slate-100 sm:px-5 lg:px-8`}>
         <style>{tableScrollbarCss}</style>
         <ToastBanner />
+
         <div className="pointer-events-none absolute inset-0 soft-grid-bg opacity-40" />
-        <div className="pointer-events-none absolute inset-0 soft-grid-bg opacity-30" />
-      <div className="pointer-events-none absolute -left-24 top-20 h-72 w-72 rounded-full bg-cyan-400/10 blur-3xl" />
-        <div className="pointer-events-none absolute -right-24 top-64 h-80 w-80 rounded-full bg-indigo-500/10 blur-3xl" />
+        <motion.div
+          aria-hidden="true"
+          animate={{ x: [0, 24, 0], y: [0, -18, 0], scale: [1, 1.05, 1] }}
+          transition={{ duration: 12, repeat: Infinity, ease: 'easeInOut' }}
+          className="pointer-events-none absolute -left-24 top-20 h-80 w-80 rounded-full bg-cyan-400/15 blur-3xl"
+        />
+        <motion.div
+          aria-hidden="true"
+          animate={{ x: [0, -28, 0], y: [0, 22, 0], scale: [1, 1.08, 1] }}
+          transition={{ duration: 14, repeat: Infinity, ease: 'easeInOut' }}
+          className="pointer-events-none absolute -right-28 top-56 h-96 w-96 rounded-full bg-indigo-500/15 blur-3xl"
+        />
+        <motion.div
+          aria-hidden="true"
+          animate={{ opacity: [0.35, 0.7, 0.35], scale: [1, 1.08, 1] }}
+          transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut' }}
+          className="pointer-events-none absolute bottom-10 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-emerald-400/10 blur-3xl"
+        />
+
         <div className="relative mx-auto flex min-h-[calc(100dvh-1.5rem)] w-full max-w-7xl flex-col">
-          <nav className="sticky top-3 z-30 mb-5 flex flex-col gap-3 rounded-[1.75rem] border border-white/10 bg-slate-950/70 px-4 py-3 shadow-2xl shadow-black/30 ring-1 ring-white/5 backdrop-blur-2xl sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <motion.nav
+            initial={{ opacity: 0, y: -16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.55, ease: 'easeOut' }}
+            className="sticky top-3 z-30 mb-5 flex flex-col gap-3 rounded-[1.75rem] border border-white/15 bg-slate-950/55 px-4 py-3 shadow-2xl shadow-black/30 ring-1 ring-white/10 backdrop-blur-3xl sm:flex-row sm:items-center sm:justify-between sm:px-5"
+          >
             <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-[1.1rem] border border-cyan-300/35 bg-gradient-to-br from-cyan-300/25 to-indigo-400/20 text-sm font-black text-cyan-50 shadow-lg shadow-cyan-950/30">
+              <motion.div
+                whileHover={{ rotate: -6, scale: 1.04 }}
+                whileTap={{ scale: 0.96 }}
+                className="grid h-12 w-12 place-items-center rounded-[1.1rem] border border-cyan-300/35 bg-gradient-to-br from-cyan-300/25 via-white/10 to-indigo-400/25 text-sm font-black text-cyan-50 shadow-lg shadow-cyan-950/30"
+              >
                 JM
-              </div>
+              </motion.div>
               <div>
                 <p className="text-base font-black tracking-tight text-white">Jirani Mwema SHG</p>
                 <p className="text-xs font-medium text-slate-300">Self Help Group Finance Portal</p>
               </div>
             </div>
-            <button onClick={handleSignIn} className="w-full rounded-2xl border border-cyan-200/30 bg-gradient-to-r from-cyan-400/25 to-indigo-400/25 px-4 py-3 text-sm font-black text-cyan-50 shadow-lg shadow-cyan-950/25 backdrop-blur-xl transition hover:-translate-y-0.5 hover:from-cyan-400/35 hover:to-indigo-400/35 sm:w-auto sm:py-2" type="button">
-              Member Sign In
-            </button>
-          </nav>
 
-          <main className="grid flex-1 items-start gap-4 pt-3 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:gap-8">
-            <section className="premium-surface rounded-[2rem] border border-white/10 bg-slate-950/35 p-5 shadow-2xl shadow-black/25 ring-1 ring-white/5 backdrop-blur-2xl sm:p-8 lg:rounded-[2.5rem] lg:p-10">
-              <p className="inline-flex rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.24em] text-cyan-200">Transparent. Accountable. Member-owned.</p>
-              <h1 className="mt-5 text-4xl font-black tracking-tight text-white sm:text-5xl lg:text-7xl">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <button
+                onClick={handleThemeToggle}
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-3 text-sm font-black text-slate-100 shadow-lg shadow-black/10 backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-white/[0.14] sm:py-2"
+                type="button"
+                aria-pressed={isLightTheme}
+              >
+                {isLightTheme ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+                {isLightTheme ? 'Dark' : 'Light'}
+              </button>
+              <motion.button
+                whileHover={{ scale: 1.02, y: -2 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={handleSignIn}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-cyan-200/35 bg-gradient-to-r from-cyan-400/25 via-sky-400/20 to-indigo-400/25 px-4 py-3 text-sm font-black text-cyan-50 shadow-lg shadow-cyan-950/25 backdrop-blur-xl transition hover:from-cyan-400/35 hover:to-indigo-400/35 sm:w-auto sm:py-2"
+                type="button"
+              >
+                <ShieldCheck className="h-4 w-4" />
+                Member Sign In
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.02, y: -2 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={handleAdminSignIn}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-amber-200/35 bg-gradient-to-r from-amber-400/25 via-orange-400/20 to-rose-400/25 px-4 py-3 text-sm font-black text-amber-50 shadow-lg shadow-amber-950/25 backdrop-blur-xl transition hover:from-amber-400/35 hover:to-rose-400/35 sm:w-auto sm:py-2"
+                type="button"
+              >
+                <SettingsIcon className="h-4 w-4" />
+                Admin Login
+              </motion.button>
+            </div>
+          </motion.nav>
+
+          <main className="grid flex-1 items-start gap-5 pt-3 lg:grid-cols-[1.08fr_0.92fr] lg:items-center lg:gap-8">
+            <motion.section
+              initial={{ opacity: 0, y: 22 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, ease: 'easeOut' }}
+              className="premium-surface relative overflow-hidden rounded-[2rem] border border-white/15 bg-white/[0.07] p-5 shadow-2xl shadow-black/30 ring-1 ring-white/10 backdrop-blur-3xl sm:p-8 lg:rounded-[2.65rem] lg:p-10"
+            >
+              <div className="absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/60 to-transparent" />
+              <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-cyan-300/10 blur-3xl" />
+              <div className="absolute -bottom-20 left-10 h-44 w-44 rounded-full bg-indigo-400/10 blur-3xl" />
+
+              <motion.p
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.15, duration: 0.5 }}
+                className="inline-flex items-center gap-2 rounded-full border border-cyan-300/25 bg-cyan-400/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.22em] text-cyan-200 shadow-lg shadow-cyan-950/20 backdrop-blur-2xl"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                Transparent. Accountable. Member-owned.
+              </motion.p>
+
+              <motion.h1
+                initial={{ opacity: 0, y: 18 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.25, duration: 0.65, ease: 'easeOut' }}
+                className="mt-5 max-w-4xl text-4xl font-black tracking-tight text-white sm:text-5xl lg:text-7xl"
+              >
                 Jirani Mwema SHG
-              </h1>
-              <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300 sm:text-base lg:text-lg lg:leading-8">
-                A modern digital finance workspace for managing members, monthly contributions, merry-go-round payouts, insurance records, bereavement support, arrears, payment verification, reports, and audit logs.
-              </p>
+                <span className="block bg-gradient-to-r from-cyan-200 via-white to-indigo-200 bg-clip-text text-transparent">
+                  Finance Portal
+                </span>
+              </motion.h1>
 
-              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                <button onClick={handleSignIn} className="rounded-2xl border border-cyan-200/30 bg-gradient-to-r from-cyan-400/30 to-indigo-400/30 px-6 py-3 text-center text-sm font-black text-cyan-50 shadow-lg shadow-cyan-950/25 backdrop-blur-xl transition hover:-translate-y-0.5 hover:from-cyan-400/40 hover:to-indigo-400/40" type="button">
+              <motion.p
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.36, duration: 0.6 }}
+                className="mt-4 max-w-2xl text-sm leading-7 text-slate-300 sm:text-base lg:text-lg lg:leading-8"
+              >
+                A frosty, secure, mobile-first finance workspace for members, contributions, merry-go-round payouts, insurance records, bereavement support, arrears, verification, reports, defaulter reminders, and audit trails.
+              </motion.p>
+
+              <motion.div
+                initial={{ opacity: 0, y: 18 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.48, duration: 0.55 }}
+                className="mt-6 flex flex-col gap-3 sm:flex-row"
+              >
+                <motion.button
+                  whileHover={{ scale: 1.02, y: -2 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleSignIn}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-cyan-200/35 bg-gradient-to-r from-cyan-400/35 via-sky-400/25 to-indigo-400/35 px-6 py-3 text-center text-sm font-black text-cyan-50 shadow-2xl shadow-cyan-950/25 backdrop-blur-xl transition hover:from-cyan-400/45 hover:to-indigo-400/45"
+                  type="button"
+                >
+                  <ShieldCheck className="h-4 w-4" />
                   Open Member Portal
-                </button>
-                <a href="#features" className="rounded-2xl border border-white/10 bg-white/10 px-6 py-3 text-center text-sm font-bold text-slate-100 shadow-lg shadow-black/10 backdrop-blur-xl transition hover:bg-white/15">
-                  View Features
-                </a>
-              </div>
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02, y: -2 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleAdminSignIn}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-amber-200/35 bg-gradient-to-r from-amber-400/30 via-orange-400/25 to-rose-400/30 px-6 py-3 text-center text-sm font-black text-amber-50 shadow-2xl shadow-amber-950/25 backdrop-blur-xl transition hover:from-amber-400/40 hover:to-rose-400/40"
+                  type="button"
+                >
+                  <SettingsIcon className="h-4 w-4" />
+                  Admin Login
+                </motion.button>
+                <motion.a
+                  whileHover={{ scale: 1.02, y: -2 }}
+                  whileTap={{ scale: 0.98 }}
+                  href="#features"
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/[0.08] px-6 py-3 text-center text-sm font-black text-slate-100 shadow-lg shadow-black/10 backdrop-blur-xl transition hover:bg-white/[0.14]"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Explore Features
+                </motion.a>
+              </motion.div>
 
-              <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <div className="touch-card rounded-2xl border border-white/10 bg-slate-950/35 p-4 shadow-lg shadow-black/10 ring-1 ring-white/5 transition hover:-translate-y-0.5 hover:bg-white/[0.08]">
-                  <p className="text-2xl font-black text-white">SHG</p>
-                  <p className="mt-1 text-xs text-slate-300">Member finance management</p>
-                </div>
-                <div className="touch-card rounded-2xl border border-white/10 bg-slate-950/35 p-4 shadow-lg shadow-black/10 ring-1 ring-white/5 transition hover:-translate-y-0.5 hover:bg-white/[0.08]">
-                  <p className="text-2xl font-black text-white">Role-Based</p>
-                  <p className="mt-1 text-xs text-slate-300">Admin and Treasurer controls</p>
-                </div>
-                <div className="touch-card rounded-2xl border border-white/10 bg-slate-950/35 p-4 shadow-lg shadow-black/10 ring-1 ring-white/5 transition hover:-translate-y-0.5 hover:bg-white/[0.08]">
-                  <p className="text-2xl font-black text-white">Audit Ready</p>
-                  <p className="mt-1 text-xs text-slate-300">Every key action tracked</p>
-                </div>
+              <motion.div
+                initial={{ opacity: 0, y: 14 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.56, duration: 0.5 }}
+                className="mt-4 rounded-2xl border border-amber-300/20 bg-amber-400/10 p-3 text-xs leading-5 text-amber-100 shadow-lg shadow-amber-950/10 backdrop-blur-2xl"
+              >
+                <strong>Admin Login:</strong> only approved Admin accounts can enter. Non-admin Google accounts are automatically signed out after verification.
+              </motion.div>
+
+              <div className="mt-7 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {landingTrustCards.map(([title, detail], index) => (
+                  <motion.div
+                    key={title}
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.58 + index * 0.08, duration: 0.48 }}
+                    whileHover={{ y: -6, scale: 1.015 }}
+                    whileTap={{ scale: 0.985 }}
+                    className="touch-card rounded-[1.35rem] border border-white/15 bg-white/[0.075] p-4 shadow-xl shadow-black/10 ring-1 ring-white/10 backdrop-blur-2xl"
+                  >
+                    <div className="mb-3 grid h-9 w-9 place-items-center rounded-2xl border border-cyan-300/20 bg-cyan-400/10">
+                      <ShieldCheck className="h-4 w-4 text-cyan-200" />
+                    </div>
+                    <p className="text-base font-black text-white">{title}</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-300">{detail}</p>
+                  </motion.div>
+                ))}
               </div>
-            </section>
+            </motion.section>
 
             <section id="features" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 lg:gap-4">
-              {[
-                ['Monthly Contributions', 'Track welfare, merry-go-round, insurance, bereavement support, paid amounts, balances, and arrears.'],
-                ['Payment Verification', 'Treasurer/Admin can verify, reject, and review member payments with notes.'],
-                ['Member Statements', 'Generate individual statements with expected amounts, paid totals, arrears, and verification history.'],
-                ['Access Requests', 'New users can request access and Admin can approve roles directly from the app.'],
-              ].map(([title, detail]) => (
-                <div key={title} className="premium-surface touch-card rounded-[1.65rem] border border-white/10 bg-slate-950/35 p-4 shadow-xl shadow-black/20 ring-1 ring-white/5 backdrop-blur-2xl transition hover:-translate-y-0.5 hover:border-cyan-300/25 sm:p-5">
-                  <div className="mb-3 h-2.5 w-2.5 rounded-full bg-cyan-300 shadow-lg shadow-cyan-300/40" />
-                  <h2 className="text-lg font-black text-white">{title}</h2>
-                  <p className="mt-2 text-sm leading-6 text-slate-300">{detail}</p>
-                </div>
+              {landingFeatureCards.map(({ title, detail, icon: Icon }, index) => (
+                <motion.div
+                  key={title}
+                  initial={{ opacity: 0, x: 28 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.2 + index * 0.12, duration: 0.58, ease: 'easeOut' }}
+                  whileHover={{ y: -8, scale: 1.018 }}
+                  whileTap={{ scale: 0.985 }}
+                  className="group premium-surface touch-card relative overflow-hidden rounded-[1.65rem] border border-white/15 bg-white/[0.07] p-4 shadow-2xl shadow-black/20 ring-1 ring-white/10 backdrop-blur-3xl transition hover:border-cyan-300/30 sm:p-5"
+                >
+                  <div className="absolute -right-12 -top-12 h-28 w-28 rounded-full bg-cyan-300/10 blur-2xl transition group-hover:bg-cyan-300/20" />
+                  <div className="relative flex items-start gap-4">
+                    <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl border border-cyan-300/25 bg-gradient-to-br from-cyan-400/20 to-indigo-400/15 shadow-lg shadow-cyan-950/20">
+                      <Icon className="h-5 w-5 text-cyan-100" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-black text-white">{title}</h2>
+                      <p className="mt-2 text-sm leading-6 text-slate-300">{detail}</p>
+                    </div>
+                  </div>
+                </motion.div>
               ))}
+
+              <motion.div
+                initial={{ opacity: 0, y: 18 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.75, duration: 0.55 }}
+                className="rounded-[1.65rem] border border-emerald-300/20 bg-emerald-400/10 p-4 shadow-xl shadow-black/15 ring-1 ring-white/5 backdrop-blur-3xl sm:p-5"
+              >
+                <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-200">Built for daily operations</p>
+                <p className="mt-2 text-sm leading-6 text-slate-300">
+                  Sign in to access role-based dashboards, member tools, charts, reports, settings, and data health checks.
+                </p>
+              </motion.div>
             </section>
           </main>
 
-          <footer className="mt-5 rounded-3xl border border-white/10 bg-white/[0.06] px-4 py-4 text-center text-xs text-slate-400 backdrop-blur-2xl sm:mt-8">
+          <footer className="mt-5 rounded-3xl border border-white/10 bg-white/[0.06] px-4 py-4 text-center text-xs text-slate-400 shadow-xl shadow-black/10 backdrop-blur-2xl sm:mt-8">
             © {new Date().getFullYear()} Jirani Mwema SHG. Secure group finance management for registered members.
           </footer>
         </div>
@@ -3714,7 +4013,33 @@ export default function DashboardPage() {
             <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-200">
               <p className="font-semibold text-white">{currentUser.displayName || currentUser.email}</p>
               <p className="text-xs text-slate-400">{currentUser.email}</p>
-              <button onClick={handleSignOut} className="mt-3 rounded-xl border border-rose-300/20 bg-rose-400/15 px-3 py-1 text-xs font-semibold text-rose-100 transition hover:bg-rose-400/25" type="button">Sign Out</button>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button onClick={handleAdminSignIn} className="rounded-xl border border-amber-300/25 bg-amber-400/15 px-3 py-1 text-xs font-semibold text-amber-100 transition hover:bg-amber-400/25" type="button">
+                  Admin Login
+                </button>
+                <button onClick={handleSignOut} className="rounded-xl border border-rose-300/20 bg-rose-400/15 px-3 py-1 text-xs font-semibold text-rose-100 transition hover:bg-rose-400/25" type="button">
+                  Sign Out
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="mb-6 rounded-2xl border border-amber-300/25 bg-amber-400/10 p-4 shadow-lg shadow-amber-950/10">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-black text-amber-100">Are you the Admin?</p>
+                <p className="mt-1 text-xs leading-5 text-amber-100/80">
+                  Use Admin Login to switch to an approved Admin Google account. Non-admin accounts are denied automatically.
+                </p>
+              </div>
+              <button
+                onClick={handleAdminSignIn}
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-amber-200/35 bg-gradient-to-r from-amber-400/30 via-orange-400/25 to-rose-400/30 px-4 py-3 text-sm font-black text-amber-50 shadow-lg shadow-amber-950/20 backdrop-blur-xl transition hover:-translate-y-0.5 hover:from-amber-400/40 hover:to-rose-400/40"
+                type="button"
+              >
+                <SettingsIcon className="h-4 w-4" />
+                Admin Login
+              </button>
             </div>
           </div>
 
@@ -3807,6 +4132,11 @@ export default function DashboardPage() {
             <button disabled={!canViewReports} onClick={printDashboardReport} className="rounded-2xl border border-white/10 bg-white/[0.09] px-4 py-3 text-sm font-black text-slate-100 shadow-lg shadow-black/10 backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-white/[0.15] disabled:cursor-not-allowed disabled:opacity-40" type="button">
               Print Report
             </button>
+            {currentUserRole !== 'Admin' ? (
+              <button onClick={handleAdminSignIn} className="rounded-2xl border border-amber-300/25 bg-amber-400/15 px-4 py-3 text-sm font-black text-amber-100 shadow-lg shadow-black/10 backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-amber-400/25" type="button">
+                Admin Login
+              </button>
+            ) : null}
             <button onClick={handleSignOut} className="rounded-2xl border border-rose-300/25 bg-rose-400/15 px-4 py-3 text-sm font-black text-rose-100 shadow-lg shadow-black/10 backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-rose-400/25" type="button">
               Sign Out
             </button>
@@ -4119,11 +4449,39 @@ export default function DashboardPage() {
             title="Access Requests"
             content={
               <div className="space-y-5">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
                   <StatCard title="Pending Requests" value={pendingAccessRequestCount} detail="Awaiting Admin approval" />
                   <StatCard title="Approved Requests" value={approvedAccessRequestCount} detail="Converted to active roles" />
                   <StatCard title="Rejected Requests" value={rejectedAccessRequestCount} detail="Declined access requests" />
                   <StatCard title="Visible Requests" value={filteredAccessRequests.length} detail="After current filters" />
+                  <StatCard title="Pending Existing Roles" value={pendingRequestsWithExistingRoleCount} detail="Review carefully before approving again" />
+                  <StatCard title="Approved Missing Member" value={approvedRequestsMissingMemberRecordCount} detail="Should be zero after workflow fix" />
+                </div>
+
+                <div className="rounded-[1.65rem] border border-cyan-300/20 bg-cyan-400/10 p-4 shadow-xl shadow-cyan-950/10">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-200">Reviewed approval workflow</p>
+                      <h3 className="mt-1 text-xl font-black text-white">Admin approval now creates both access role and member finance record</h3>
+                      <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-300">
+                        When Admin approves a request, the app writes the user role to both membership paths and also creates or updates the matching member record. This keeps the approved user visible in Members, monthly contribution generation, arrears, statements, and defaulter reminders.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-3 lg:min-w-[28rem]">
+                      <div className="rounded-2xl border border-white/10 bg-black/15 p-3">
+                        <p className="font-black text-emerald-300">1. Request</p>
+                        <p className="mt-1 text-slate-300">User submits name, phone, role, and reason.</p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/15 p-3">
+                        <p className="font-black text-cyan-300">2. Review</p>
+                        <p className="mt-1 text-slate-300">Admin selects role and adds approval notes.</p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/15 p-3">
+                        <p className="font-black text-indigo-300">3. Activate</p>
+                        <p className="mt-1 text-slate-300">Membership + finance record + audit log are saved.</p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -4146,74 +4504,152 @@ export default function DashboardPage() {
                   </select>
                 </div>
 
-                <div className="visible-horizontal-scrollbar w-full max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-cyan-300/20 bg-black/10 pb-5 shadow-inner shadow-black/20">
-                  <div className="table-scroll-hint sm:hidden">Swipe table ↔</div>
-                  <table className="min-w-[760px] divide-y divide-white/10 text-sm">
-                    <thead className="text-left text-xs uppercase tracking-[0.16em] text-slate-400">
-                      <tr>
-                        <th className="px-3 py-3">Requester</th>
-                        <th className="px-3 py-3">Requested Role</th>
-                        <th className="px-3 py-3">Status</th>
-                        <th className="px-3 py-3">Reason</th>
-                        <th className="px-3 py-3">Approve As</th>
-                        <th className="px-3 py-3 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/10">
-                      {filteredAccessRequests.map((requestItem) => (
-                        <tr key={requestItem.id} className="transition hover:bg-white/[0.04]">
-                          <td className="px-3 py-3">
-                            <p className="font-semibold text-white">{requestItem.displayName || requestItem.email || 'Unnamed requester'}</p>
-                            <p className="text-xs text-slate-400">{requestItem.email || 'No email'} • {requestItem.phone || 'No phone'}</p>
-                            <p className="max-w-[220px] truncate font-mono text-[11px] text-slate-500" title={requestItem.uid}>{requestItem.uid}</p>
-                          </td>
-                          <td className="px-3 py-3 text-slate-200">{requestItem.requestedRole}</td>
-                          <td className="px-3 py-3"><span className="rounded-full border border-white/10 bg-white/[0.08] px-3 py-1 text-xs font-semibold text-slate-100">{requestItem.status}</span></td>
-                          <td className="max-w-[300px] px-3 py-3 text-slate-300">{requestItem.reason}</td>
-                          <td className="px-3 py-3">
-                            <select
-                              value={accessApprovalRoles[requestItem.id] || requestItem.requestedRole || 'Member'}
-                              onChange={(event) => setAccessApprovalRoles((previous) => ({ ...previous, [requestItem.id]: event.target.value as ManagedUserRole }))}
-                              disabled={requestItem.status !== 'Pending'}
-                              className="rounded-xl border border-white/10 bg-white/[0.08] px-2 py-1 text-xs text-white focus:border-cyan-400 focus:outline-none disabled:opacity-50"
-                            >
-                              {managedRoleOptions.map((role) => (
-                                <option className="bg-slate-900" key={role} value={role}>{role}</option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="px-3 py-3">
-                            <div className="flex justify-end gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleApproveAccessRequest(requestItem)}
-                                disabled={requestItem.status !== 'Pending' || processingAccessRequestId === requestItem.id}
-                                className="rounded-xl border border-emerald-300/20 bg-emerald-400/15 px-3 py-1 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-400/25 disabled:cursor-not-allowed disabled:opacity-40"
-                              >
-                                Approve
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleRejectAccessRequest(requestItem)}
-                                disabled={requestItem.status !== 'Pending' || processingAccessRequestId === requestItem.id}
-                                className="rounded-xl border border-rose-300/20 bg-rose-400/15 px-3 py-1 text-xs font-semibold text-rose-100 transition hover:bg-rose-400/25 disabled:cursor-not-allowed disabled:opacity-40"
-                              >
-                                Reject
-                              </button>
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  {filteredAccessRequests.map((requestItem) => {
+                    const existingRoleRecord = findRoleRecordForAccessRequest(requestItem);
+                    const existingMemberRecord = findMemberRecordForAccessRequest(requestItem);
+                    const selectedApprovalRole = accessApprovalRoles[requestItem.id] || requestItem.requestedRole || 'Member';
+                    const isProcessingRequest = processingAccessRequestId === requestItem.id;
+                    const requestStatusTone =
+                      requestItem.status === 'Approved'
+                        ? 'border-emerald-300/20 bg-emerald-400/10 text-emerald-200'
+                        : requestItem.status === 'Rejected'
+                          ? 'border-rose-300/20 bg-rose-400/10 text-rose-200'
+                          : 'border-amber-300/20 bg-amber-400/10 text-amber-200';
+
+                    return (
+                      <article key={requestItem.id} className="rounded-[1.65rem] border border-white/10 bg-white/[0.055] p-4 shadow-xl shadow-black/15 ring-1 ring-white/5">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={`rounded-full border px-3 py-1 text-xs font-black ${requestStatusTone}`}>{requestItem.status}</span>
+                              {existingRoleRecord ? (
+                                <span className="rounded-full border border-indigo-300/20 bg-indigo-400/10 px-3 py-1 text-xs font-black text-indigo-200">Existing role: {existingRoleRecord.role}</span>
+                              ) : null}
+                              {existingMemberRecord ? (
+                                <span className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-1 text-xs font-black text-emerald-200">Member linked</span>
+                              ) : (
+                                <span className="rounded-full border border-amber-300/20 bg-amber-400/10 px-3 py-1 text-xs font-black text-amber-200">Member record will be created</span>
+                              )}
                             </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                            <h3 className="mt-3 break-words text-xl font-black text-white">{requestItem.displayName || requestItem.email || 'Unnamed requester'}</h3>
+                            <p className="mt-1 break-words text-sm text-slate-300">{requestItem.email || 'No email'} • {requestItem.phone || 'No phone'}</p>
+                            <p className="mt-1 max-w-full truncate font-mono text-[11px] text-slate-500" title={requestItem.uid}>{requestItem.uid}</p>
+                          </div>
+                          <div className="rounded-2xl border border-white/10 bg-black/15 p-3 text-sm sm:min-w-[12rem]">
+                            <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Requested Role</p>
+                            <p className="mt-1 text-lg font-black text-white">{requestItem.requestedRole}</p>
+                            <p className="mt-1 text-xs text-slate-400">Submitted {requestItem.createdAt ? new Date(requestItem.createdAt).toLocaleString('en-KE') : 'Not set'}</p>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 rounded-2xl border border-white/10 bg-black/15 p-3">
+                          <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Reason</p>
+                          <p className="mt-2 text-sm leading-6 text-slate-200">{requestItem.reason || 'No reason provided.'}</p>
+                        </div>
+
+                        {requestItem.status === 'Pending' ? (
+                          <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-[0.8fr_1.2fr]">
+                            <label className="block">
+                              <span className="mb-2 block text-xs font-black uppercase tracking-[0.18em] text-slate-400">Approve As</span>
+                              <select
+                                value={selectedApprovalRole}
+                                onChange={(event) => setAccessApprovalRoles((previous) => ({ ...previous, [requestItem.id]: event.target.value as ManagedUserRole }))}
+                                disabled={isProcessingRequest}
+                                className="w-full rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white focus:border-cyan-400 focus:outline-none disabled:opacity-50"
+                              >
+                                {managedRoleOptions.map((role) => (
+                                  <option className="bg-slate-900" key={role} value={role}>{role}</option>
+                                ))}
+                              </select>
+                            </label>
+
+                            <label className="block">
+                              <span className="mb-2 block text-xs font-black uppercase tracking-[0.18em] text-slate-400">Admin Review Notes</span>
+                              <input
+                                type="text"
+                                value={accessReviewNotes[requestItem.id] || ''}
+                                onChange={(event) => setAccessReviewNotes((previous) => ({ ...previous, [requestItem.id]: event.target.value }))}
+                                placeholder={`Approved as ${selectedApprovalRole}`}
+                                disabled={isProcessingRequest}
+                                className="w-full rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-3 text-sm text-white placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none disabled:opacity-50"
+                              />
+                            </label>
+                          </div>
+                        ) : (
+                          <div className="mt-4 rounded-2xl border border-white/10 bg-black/15 p-3">
+                            <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Review Decision</p>
+                            <p className="mt-2 text-sm leading-6 text-slate-200">
+                              {requestItem.status === 'Approved' ? `Approved as ${requestItem.approvedRole || requestItem.requestedRole}` : 'Rejected'}
+                              {requestItem.reviewedBy ? ` by ${requestItem.reviewedBy}` : ''}
+                              {requestItem.reviewedAt ? ` on ${new Date(requestItem.reviewedAt).toLocaleString('en-KE')}` : ''}.
+                            </p>
+                            <p className="mt-1 text-sm text-slate-400">{requestItem.adminNotes || 'No admin notes saved.'}</p>
+                          </div>
+                        )}
+
+                        <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                          <div className="rounded-2xl border border-white/10 bg-black/15 p-3">
+                            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Role Record</p>
+                            <p className="mt-1 text-sm font-black text-white">{existingRoleRecord ? existingRoleRecord.status : 'Will be active'}</p>
+                          </div>
+                          <div className="rounded-2xl border border-white/10 bg-black/15 p-3">
+                            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Finance Record</p>
+                            <p className="mt-1 text-sm font-black text-white">{existingMemberRecord ? 'Update existing' : 'Create new'}</p>
+                          </div>
+                          <div className="rounded-2xl border border-white/10 bg-black/15 p-3">
+                            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Audit Trail</p>
+                            <p className="mt-1 text-sm font-black text-white">Required</p>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 flex flex-wrap justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRoleSearch(requestItem.email || requestItem.displayName || requestItem.uid);
+                              notify('Copied requester context into Role Management search.', 'info');
+                            }}
+                            className="rounded-xl border border-white/10 bg-white/[0.08] px-3 py-2 text-xs font-semibold text-slate-100 transition hover:bg-white/[0.14]"
+                          >
+                            Check Roles
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleApproveAccessRequest(requestItem)}
+                            disabled={requestItem.status !== 'Pending' || isProcessingRequest}
+                            className="rounded-xl border border-emerald-300/20 bg-emerald-400/15 px-3 py-2 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-400/25 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {isProcessingRequest ? 'Processing...' : 'Approve + Link Member'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRejectAccessRequest(requestItem)}
+                            disabled={requestItem.status !== 'Pending' || isProcessingRequest}
+                            className="rounded-xl border border-rose-300/20 bg-rose-400/15 px-3 py-2 text-xs font-semibold text-rose-100 transition hover:bg-rose-400/25 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+
                   {filteredAccessRequests.length === 0 ? (
-                    <p className="px-3 py-5 text-center text-sm text-slate-400">No access requests match the current filters.</p>
+                    <div className="xl:col-span-2 rounded-[1.65rem] border border-white/10 bg-white/[0.045] p-6 text-center">
+                      <p className="text-sm font-black uppercase tracking-[0.22em] text-cyan-300">No requests found</p>
+                      <h3 className="mt-2 text-2xl font-black text-white">No access requests match the current filters</h3>
+                      <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+                        Ask a new user to sign in and submit an access request, then approve them here.
+                      </p>
+                    </div>
                   ) : null}
                 </div>
               </div>
             }
           />
         ) : null}
+
 
         <Module
           title="Stats"
