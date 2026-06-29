@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import LandingRoleHelp from "@/components/LandingRoleHelp";
 import {
   BarChart3,
   BellRing,
@@ -153,18 +154,21 @@ export default function LandingPage() {
       `}</style>
 
       <div className="pointer-events-none absolute inset-0 soft-grid opacity-60" />
+
       <motion.div
         aria-hidden="true"
         animate={{ x: [0, 24, 0], y: [0, -18, 0], scale: [1, 1.05, 1] }}
         transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
         className="pointer-events-none absolute -left-24 top-20 h-80 w-80 rounded-full bg-cyan-400/20 blur-3xl"
       />
+
       <motion.div
         aria-hidden="true"
         animate={{ x: [0, -28, 0], y: [0, 22, 0], scale: [1, 1.08, 1] }}
         transition={{ duration: 14, repeat: Infinity, ease: "easeInOut" }}
         className="pointer-events-none absolute -right-28 top-56 h-96 w-96 rounded-full bg-indigo-500/20 blur-3xl"
       />
+
       <motion.div
         aria-hidden="true"
         animate={{ opacity: [0.35, 0.7, 0.35], scale: [1, 1.08, 1] }}
@@ -188,12 +192,8 @@ export default function LandingPage() {
               JM
             </motion.div>
             <div>
-              <p className="text-base font-black tracking-tight text-white">
-                Jirani Mwema SHG
-              </p>
-              <p className="text-xs font-medium text-slate-300">
-                Self Help Group Finance Portal
-              </p>
+              <p className="text-base font-black tracking-tight text-white">Jirani Mwema SHG</p>
+              <p className="text-xs font-medium text-slate-300">Self Help Group Finance Portal</p>
             </div>
           </div>
 
@@ -217,6 +217,7 @@ export default function LandingPage() {
               <ShieldCheck className="h-4 w-4" />
               Member Portal
             </motion.a>
+
             <motion.a
               whileHover={{ scale: 1.02, y: -2 }}
               whileTap={{ scale: 0.98 }}
@@ -314,6 +315,8 @@ export default function LandingPage() {
                 Explore Features
               </motion.a>
             </motion.div>
+
+            <LandingRoleHelp />
 
             <div className="mt-7 grid grid-cols-1 gap-3 sm:grid-cols-3">
               {trustCards.map((card, index) => (
