@@ -77,9 +77,7 @@ export class DarajaClient {
   }
 
   async getAccessToken() {
-    if (cachedToken && Date.now() < cachedToken.expiresAt) {
-      return cachedToken.token;
-    }
+    // Token cache disabled during Daraja sandbox debugging.
 
     const credentials = Buffer.from(
       `${this.config.consumerKey}:${this.config.consumerSecret}`
@@ -248,4 +246,5 @@ export function normalizeKenyaPhoneNumber(rawPhone: string) {
     "Invalid Kenya phone number. Use 07XXXXXXXX, 01XXXXXXXX, 2547XXXXXXXX, or 2541XXXXXXXX."
   );
 }
+
 
