@@ -96,7 +96,7 @@ export class DarajaClient {
       }
     );
 
-    const payload = await response.json();
+    const payload = await readDarajaPayload(response);
 
     if (!response.ok || !payload.access_token) {
       throw new DarajaApiError(
@@ -170,7 +170,7 @@ export class DarajaClient {
       cache: "no-store",
     });
 
-    const payload = await response.json();
+    const payload = await readDarajaPayload(response);
 
     if (!response.ok || payload.errorCode) {
       throw new DarajaApiError(
@@ -181,6 +181,26 @@ export class DarajaClient {
     }
 
     return payload;
+  }
+}
+
+async function readDarajaPayload(response: Response): Promise<any> {
+  const text = await response.text();
+
+  if (!text) {
+    return {
+      raw: "",
+      errorMessage: `Empty response from Daraja. HTTP ${response.status}.`,
+    };
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {
+      raw: text,
+      errorMessage: `Non-JSON response from Daraja. HTTP ${response.status}.`,
+    };
   }
 }
 
@@ -228,3 +248,4 @@ export function normalizeKenyaPhoneNumber(rawPhone: string) {
     "Invalid Kenya phone number. Use 07XXXXXXXX, 01XXXXXXXX, 2547XXXXXXXX, or 2541XXXXXXXX."
   );
 }
+
