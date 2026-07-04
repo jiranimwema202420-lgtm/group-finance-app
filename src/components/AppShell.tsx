@@ -1,10 +1,22 @@
 ﻿"use client";
 
 import { ReactNode, useState } from "react";
+import { usePathname } from "next/navigation";
 import SidebarNav from "@/components/SidebarNav";
 
+const shellExcludedRoutes = ["/landing", "/offline"];
+
 export default function AppShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  const shouldSkipShell = shellExcludedRoutes.some((route) => {
+    return pathname === route || pathname.startsWith(`${route}/`);
+  });
+
+  if (shouldSkipShell) {
+    return <>{children}</>;
+  }
 
   return (
     <div className="min-h-dvh bg-slate-50 text-slate-950">
