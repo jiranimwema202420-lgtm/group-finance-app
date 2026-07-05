@@ -1,6 +1,12 @@
 ﻿"use client";
 
-import { User, onAuthStateChanged } from "firebase/auth";
+import {
+  GoogleAuthProvider,
+  User,
+  onAuthStateChanged,
+  signInWithPopup,
+  signOut,
+} from "firebase/auth";
 import {
   addDoc,
   collection,
@@ -389,6 +395,24 @@ export default function MembersClient() {
     clearFilters();
   }
 
+  async function signInWithGoogle() {
+    if (!auth) {
+      setSyncError("Firebase Auth is not configured.");
+      return;
+    }
+
+    const provider = new GoogleAuthProvider();
+    await signInWithPopup(auth, provider);
+  }
+
+  async function signOutUser() {
+    if (!auth) return;
+
+    await signOut(auth);
+    setCurrentUser(null);
+    setSyncMode("Local only");
+  }
+
   function exportCsv() {
     const headers = [
       "No.",
@@ -469,6 +493,24 @@ export default function MembersClient() {
             >
               {editMode ? "Editing enabled" : "Enable editing"}
             </button>
+
+            {currentUser ? (
+              <button
+                type="button"
+                onClick={signOutUser}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50"
+              >
+                Sign out
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={signInWithGoogle}
+                className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-emerald-700"
+              >
+                Sign in with Google
+              </button>
+            )}
 
             <button
               type="button"
@@ -805,5 +847,6 @@ export default function MembersClient() {
     </section>
   );
 }
+
 
 
