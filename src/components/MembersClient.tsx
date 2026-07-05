@@ -1,12 +1,30 @@
 ﻿"use client";
 
+import { User, onAuthStateChanged } from "firebase/auth";
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+} from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
+import { auth, db } from "@/lib/firebase";
+
+const CURRENT_GROUP_ID = "demo_group_01";
+const STORAGE_KEY = "jirani_members_register_v1";
 
 const roles = ["Admin", "Treasurer", "Chairperson", "Member"] as const;
 const statuses = ["Active", "Inactive", "Exited"] as const;
 
 type MemberRole = (typeof roles)[number];
 type MemberStatus = (typeof statuses)[number];
+
+type SyncMode = "Local only" | "Connecting" | "Firestore synced" | "Firestore unavailable";
 
 type Member = {
   id: string;
@@ -19,8 +37,6 @@ type Member = {
   joinDate: string;
   notes: string;
 };
-
-const STORAGE_KEY = "jirani_members_register_v1";
 
 const starterMembers: Member[] = [
   {
@@ -95,6 +111,18 @@ function normalize(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+function isRole(value: unknown): value is MemberRole {
+  return roles.includes(value as MemberRole);
+}
+
+function isStatus(value: unknown): value is MemberStatus {
+  return statuses.includes(value as MemberStatus);
+}
+
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function sortMembers(members: Member[]) {
   return [...members].sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -107,22 +135,55 @@ function formatKes(value: number) {
   }).format(value);
 }
 
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function createId() {
-  return `member-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
 function csvEscape(value: unknown) {
   return `"${String(value ?? "").replaceAll('"', '""')}"`;
+}
+
+function cleanMember(raw: Partial<Member>, fallbackId: string): Member {
+  return {
+    id: String(raw.id ?? fallbackId),
+    name: String(raw.name ?? "").trim() || "Unnamed Member",
+    phone: String(raw.phone ?? ""),
+    role: isRole(raw.role) ? raw.role : "Member",
+    status: isStatus(raw.status) ? raw.status : "Active",
+    monthlyContribution: Number(raw.monthlyContribution ?? 200),
+    insurancePremium: Number(raw.insurancePremium ?? 750),
+    joinDate: String(raw.joinDate ?? today()),
+    notes: String(raw.notes ?? ""),
+  };
+}
+
+function membersCollectionRef() {
+  return collection(db, "groups", CURRENT_GROUP_ID, "members");
+}
+
+function memberDocRef(memberId: string) {
+  return doc(db, "groups", CURRENT_GROUP_ID, "members", memberId);
+}
+
+function toFirestoreData(member: Member) {
+  return {
+    name: member.name.trim(),
+    phone: member.phone.trim(),
+    role: member.role,
+    status: member.status,
+    monthlyContribution: Number(member.monthlyContribution || 0),
+    insurancePremium: Number(member.insurancePremium || 0),
+    joinDate: member.joinDate,
+    notes: member.notes.trim(),
+    groupId: CURRENT_GROUP_ID,
+    updatedAt: serverTimestamp(),
+  };
 }
 
 export default function MembersClient() {
   const [members, setMembers] = useState<Member[]>(starterMembers);
   const [loaded, setLoaded] = useState(false);
   const [editMode, setEditMode] = useState(false);
+
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [syncMode, setSyncMode] = useState<SyncMode>("Connecting");
+  const [syncError, setSyncError] = useState("");
 
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<"All" | MemberRole>("All");
@@ -136,10 +197,10 @@ export default function MembersClient() {
       const stored = window.localStorage.getItem(STORAGE_KEY);
 
       if (stored) {
-        const parsed = JSON.parse(stored) as Member[];
+        const parsed = JSON.parse(stored) as Partial<Member>[];
 
         if (Array.isArray(parsed)) {
-          setMembers(parsed);
+          setMembers(parsed.map((member, index) => cleanMember(member, `local-${index}`)));
         }
       }
     } catch {
@@ -150,9 +211,52 @@ export default function MembersClient() {
   }, []);
 
   useEffect(() => {
+    return onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      setSyncMode(user ? "Connecting" : "Local only");
+    });
+  }, []);
+
+  useEffect(() => {
     if (!loaded) return;
+
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(members));
   }, [loaded, members]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const membersQuery = query(membersCollectionRef(), orderBy("name", "asc"));
+
+    const unsubscribe = onSnapshot(
+      membersQuery,
+      (snapshot) => {
+        const firestoreMembers = snapshot.docs.map((documentSnapshot) =>
+          cleanMember(
+            {
+              id: documentSnapshot.id,
+              ...(documentSnapshot.data() as Partial<Member>),
+            },
+            documentSnapshot.id
+          )
+        );
+
+        if (firestoreMembers.length > 0) {
+          setMembers(sortMembers(firestoreMembers));
+        }
+
+        setSyncMode("Firestore synced");
+        setSyncError("");
+      },
+      (error) => {
+        console.error("Members Firestore sync failed:", error);
+        setSyncMode("Firestore unavailable");
+        setSyncError(error.message);
+      }
+    );
+
+    return unsubscribe;
+  }, [currentUser]);
 
   const filteredMembers = useMemo(() => {
     const q = normalize(search);
@@ -189,21 +293,40 @@ export default function MembersClient() {
     0
   );
 
-  function updateMember(id: string, patch: Partial<Member>) {
+  async function saveMember(member: Member) {
     setMembers((current) =>
-      current.map((member) =>
-        member.id === id ? { ...member, ...patch } : member
+      sortMembers(
+        current.map((existingMember) =>
+          existingMember.id === member.id ? member : existingMember
+        )
       )
+    );
+
+    if (!currentUser || syncMode === "Firestore unavailable") return;
+
+    await setDoc(
+      memberDocRef(member.id),
+      {
+        ...toFirestoreData(member),
+        createdAt: serverTimestamp(),
+      },
+      { merge: true }
     );
   }
 
-  function addMember() {
+  async function updateMember(id: string, patch: Partial<Member>) {
+    const existingMember = members.find((member) => member.id === id);
+    if (!existingMember) return;
+
+    await saveMember({ ...existingMember, ...patch });
+  }
+
+  async function addMember() {
     const name = newName.trim();
 
     if (!name) return;
 
-    const member: Member = {
-      id: createId(),
+    const memberData: Omit<Member, "id"> = {
       name,
       phone: newPhone.trim(),
       role: "Member",
@@ -214,7 +337,26 @@ export default function MembersClient() {
       notes: "",
     };
 
-    setMembers((current) => sortMembers([...current, member]));
+    if (currentUser && syncMode !== "Firestore unavailable") {
+      const docRef = await addDoc(membersCollectionRef(), {
+        ...memberData,
+        groupId: CURRENT_GROUP_ID,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      setMembers((current) =>
+        sortMembers([...current, { id: docRef.id, ...memberData }])
+      );
+    } else {
+      setMembers((current) =>
+        sortMembers([
+          ...current,
+          { id: `local-${Date.now()}`, ...memberData },
+        ])
+      );
+    }
+
     setNewName("");
     setNewPhone("");
   }
@@ -226,7 +368,7 @@ export default function MembersClient() {
   }
 
   function resetLocalData() {
-    const confirmed = window.confirm("Reset members to starter local data?");
+    const confirmed = window.confirm("Reset local members to starter data?");
     if (!confirmed) return;
 
     setMembers(starterMembers);
@@ -234,18 +376,6 @@ export default function MembersClient() {
   }
 
   function exportCsv() {
-    const rows = sortMembers(members).map((member, index) => [
-      index + 1,
-      member.name,
-      member.phone,
-      member.role,
-      member.status,
-      member.monthlyContribution,
-      member.insurancePremium,
-      member.joinDate,
-      member.notes,
-    ]);
-
     const headers = [
       "No.",
       "Name",
@@ -257,6 +387,18 @@ export default function MembersClient() {
       "Join Date",
       "Notes",
     ];
+
+    const rows = sortMembers(members).map((member, index) => [
+      index + 1,
+      member.name,
+      member.phone,
+      member.role,
+      member.status,
+      member.monthlyContribution,
+      member.insurancePremium,
+      member.joinDate,
+      member.notes,
+    ]);
 
     const csv = [headers, ...rows]
       .map((row) => row.map(csvEscape).join(","))
@@ -273,22 +415,15 @@ export default function MembersClient() {
     URL.revokeObjectURL(url);
   }
 
-  function markExited(id: string) {
-    updateMember(id, { status: "Exited" });
-  }
-
-  function reactivate(id: string) {
-    updateMember(id, { status: "Active" });
-  }
-
-  function deleteMember(id: string) {
-    const confirmed = window.confirm(
-      "Delete this member from local browser storage?"
-    );
-
+  async function deleteMember(id: string) {
+    const confirmed = window.confirm("Delete this member?");
     if (!confirmed) return;
 
     setMembers((current) => current.filter((member) => member.id !== id));
+
+    if (!currentUser || syncMode === "Firestore unavailable") return;
+
+    await deleteDoc(memberDocRef(id));
   }
 
   return (
@@ -303,8 +438,7 @@ export default function MembersClient() {
               Members Register
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Manage members, roles, status, join dates, monthly contributions,
-              and insurance premium settings.
+              Manage members, roles, status, contribution settings, insurance premiums, and Firestore-backed records.
             </p>
           </div>
 
@@ -340,44 +474,37 @@ export default function MembersClient() {
           </div>
         </div>
 
-        <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-800">
-          This page currently uses local browser storage only. Firestore
-          persistence will be added in the next database phase.
+        <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
+          <strong>Sync mode:</strong> {syncMode}
+          {currentUser?.email ? ` as ${currentUser.email}` : " — not signed in"}
+          {syncError ? (
+            <span className="mt-1 block text-red-700">Firestore error: {syncError}</span>
+          ) : null}
         </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-medium text-slate-500">Total members</p>
-          <p className="mt-2 text-3xl font-bold text-slate-950">
-            {members.length}
-          </p>
+          <p className="mt-2 text-3xl font-bold text-slate-950">{members.length}</p>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-medium text-slate-500">Active members</p>
-          <p className="mt-2 text-3xl font-bold text-slate-950">
-            {activeMembers.length}
-          </p>
+          <p className="mt-2 text-3xl font-bold text-slate-950">{activeMembers.length}</p>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-medium text-slate-500">Officials</p>
-          <p className="mt-2 text-3xl font-bold text-slate-950">
-            {officials.length}
-          </p>
+          <p className="mt-2 text-3xl font-bold text-slate-950">{officials.length}</p>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm font-medium text-slate-500">
-            Expected monthly total
-          </p>
+          <p className="text-sm font-medium text-slate-500">Expected monthly total</p>
           <p className="mt-2 text-2xl font-bold text-slate-950">
             {formatKes(expectedMonthlyTotal)}
           </p>
-          <p className="mt-1 text-xs text-slate-500">
-            Active contributions + insurance
-          </p>
+          <p className="mt-1 text-xs text-slate-500">Active contributions + insurance</p>
         </div>
       </div>
 
@@ -413,9 +540,7 @@ export default function MembersClient() {
           >
             <option value="All">All roles</option>
             {roles.map((role) => (
-              <option key={role} value={role}>
-                {role}
-              </option>
+              <option key={role} value={role}>{role}</option>
             ))}
           </select>
 
@@ -428,9 +553,7 @@ export default function MembersClient() {
           >
             <option value="All">All statuses</option>
             {statuses.map((status) => (
-              <option key={status} value={status}>
-                {status}
-              </option>
+              <option key={status} value={status}>{status}</option>
             ))}
           </select>
         </div>
@@ -441,7 +564,7 @@ export default function MembersClient() {
           <div>
             <h2 className="text-lg font-bold text-slate-950">Add member</h2>
             <p className="mt-1 text-sm text-slate-500">
-              New members are saved locally in this browser.
+              If signed in with permission, this saves to Firestore. Otherwise it remains local.
             </p>
           </div>
 
@@ -547,9 +670,7 @@ export default function MembersClient() {
                       className="w-36 rounded-lg border border-slate-200 px-3 py-2 text-slate-700 outline-none focus:ring-4 focus:ring-slate-900/10 disabled:appearance-none disabled:border-transparent disabled:bg-transparent disabled:px-0"
                     >
                       {roles.map((role) => (
-                        <option key={role} value={role}>
-                          {role}
-                        </option>
+                        <option key={role} value={role}>{role}</option>
                       ))}
                     </select>
                   </td>
@@ -566,9 +687,7 @@ export default function MembersClient() {
                       className="w-32 rounded-lg border border-slate-200 px-3 py-2 text-slate-700 outline-none focus:ring-4 focus:ring-slate-900/10 disabled:appearance-none disabled:border-transparent disabled:bg-transparent disabled:px-0"
                     >
                       {statuses.map((status) => (
-                        <option key={status} value={status}>
-                          {status}
-                        </option>
+                        <option key={status} value={status}>{status}</option>
                       ))}
                     </select>
                   </td>
@@ -606,9 +725,7 @@ export default function MembersClient() {
                       type="date"
                       value={member.joinDate}
                       onChange={(event) =>
-                        updateMember(member.id, {
-                          joinDate: event.target.value,
-                        })
+                        updateMember(member.id, { joinDate: event.target.value })
                       }
                       disabled={!editMode}
                       className="w-40 rounded-lg border border-slate-200 px-3 py-2 text-slate-700 outline-none focus:ring-4 focus:ring-slate-900/10 disabled:border-transparent disabled:bg-transparent disabled:px-0"
@@ -632,7 +749,7 @@ export default function MembersClient() {
                       {member.status === "Exited" ? (
                         <button
                           type="button"
-                          onClick={() => reactivate(member.id)}
+                          onClick={() => updateMember(member.id, { status: "Active" })}
                           disabled={!editMode}
                           className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
@@ -641,7 +758,7 @@ export default function MembersClient() {
                       ) : (
                         <button
                           type="button"
-                          onClick={() => markExited(member.id)}
+                          onClick={() => updateMember(member.id, { status: "Exited" })}
                           disabled={!editMode}
                           className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
