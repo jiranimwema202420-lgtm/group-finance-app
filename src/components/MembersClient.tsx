@@ -13,7 +13,7 @@ import {
   setDoc,
 } from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
-import { auth, db } from "@/lib/firebase";
+import { auth, db, firebaseConfigReady } from "@/lib/firebase";
 
 const CURRENT_GROUP_ID = "demo_group_01";
 const STORAGE_KEY = "jirani_members_register_v1";
@@ -154,10 +154,18 @@ function cleanMember(raw: Partial<Member>, fallbackId: string): Member {
 }
 
 function membersCollectionRef() {
+  if (!db) {
+    throw new Error("Firestore is not configured.");
+  }
+
   return collection(db, "groups", CURRENT_GROUP_ID, "members");
 }
 
 function memberDocRef(memberId: string) {
+  if (!db) {
+    throw new Error("Firestore is not configured.");
+  }
+
   return doc(db, "groups", CURRENT_GROUP_ID, "members", memberId);
 }
 
@@ -211,6 +219,12 @@ export default function MembersClient() {
   }, []);
 
   useEffect(() => {
+    if (!firebaseConfigReady || !auth || !db) {
+      setSyncMode("Local only");
+      setSyncError("Firebase environment variables are not configured.");
+      return;
+    }
+
     return onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
       setSyncMode(user ? "Connecting" : "Local only");
@@ -791,3 +805,5 @@ export default function MembersClient() {
     </section>
   );
 }
+
+
