@@ -2,8 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type MemberRole = "Admin" | "Treasurer" | "Chairperson" | "Member";
-type MemberStatus = "Active" | "Inactive" | "Exited";
+const roles = ["Admin", "Treasurer", "Chairperson", "Member"] as const;
+const statuses = ["Active", "Inactive", "Exited"] as const;
+
+type MemberRole = (typeof roles)[number];
+type MemberStatus = (typeof statuses)[number];
 
 type Member = {
   id: string;
@@ -88,19 +91,12 @@ const starterMembers: Member[] = [
   },
 ];
 
-const roleOptions: MemberRole[] = ["Admin", "Treasurer", "Chairperson", "Member"];
-const statusOptions: MemberStatus[] = ["Active", "Inactive", "Exited"];
-
 function normalize(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
 }
 
-function sortMembersByName(members: Member[]) {
+function sortMembers(members: Member[]) {
   return [...members].sort((a, b) => a.name.localeCompare(b.name));
-}
-
-function createMemberId() {
-  return `member-${Date.now()}`;
 }
 
 function formatKes(value: number) {
@@ -111,17 +107,29 @@ function formatKes(value: number) {
   }).format(value);
 }
 
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function createId() {
+  return `member-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function csvEscape(value: unknown) {
+  return `"${String(value ?? "").replaceAll('"', '""')}"`;
+}
+
 export default function MembersClient() {
   const [members, setMembers] = useState<Member[]>(starterMembers);
-  const [hasLoaded, setHasLoaded] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [editMode, setEditMode] = useState(false);
 
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<"All" | MemberRole>("All");
   const [statusFilter, setStatusFilter] = useState<"All" | MemberStatus>("All");
 
-  const [newMemberName, setNewMemberName] = useState("");
-  const [newMemberPhone, setNewMemberPhone] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newPhone, setNewPhone] = useState("");
 
   useEffect(() => {
     try {
@@ -129,98 +137,86 @@ export default function MembersClient() {
 
       if (stored) {
         const parsed = JSON.parse(stored) as Member[];
-        setMembers(parsed);
+
+        if (Array.isArray(parsed)) {
+          setMembers(parsed);
+        }
       }
     } catch {
       setMembers(starterMembers);
     } finally {
-      setHasLoaded(true);
+      setLoaded(true);
     }
   }, []);
 
   useEffect(() => {
-    if (!hasLoaded) return;
-
+    if (!loaded) return;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(members));
-  }, [hasLoaded, members]);
+  }, [loaded, members]);
 
   const filteredMembers = useMemo(() => {
-    const normalizedSearch = normalize(search);
-    const normalizedRoleFilter = normalize(roleFilter);
-    const normalizedStatusFilter = normalize(statusFilter);
+    const q = normalize(search);
+    const role = normalize(roleFilter);
+    const status = normalize(statusFilter);
 
-    return sortMembersByName(members).filter((member) => {
-      const memberName = normalize(member.name);
-      const memberPhone = normalize(member.phone);
-      const memberRole = normalize(member.role);
-      const memberStatus = normalize(member.status);
-      const memberNotes = normalize(member.notes);
-
+    return sortMembers(members).filter((member) => {
       const matchesSearch =
-        !normalizedSearch ||
-        memberName.includes(normalizedSearch) ||
-        memberPhone.includes(normalizedSearch) ||
-        memberRole.includes(normalizedSearch) ||
-        memberStatus.includes(normalizedSearch) ||
-        memberNotes.includes(normalizedSearch);
+        !q ||
+        normalize(member.name).includes(q) ||
+        normalize(member.phone).includes(q) ||
+        normalize(member.role).includes(q) ||
+        normalize(member.status).includes(q) ||
+        normalize(member.notes).includes(q);
 
-      const matchesRole =
-        normalizedRoleFilter === "all" || memberRole === normalizedRoleFilter;
-
+      const matchesRole = role === "all" || normalize(member.role) === role;
       const matchesStatus =
-        normalizedStatusFilter === "all" ||
-        memberStatus === normalizedStatusFilter;
+        status === "all" || normalize(member.status) === status;
 
       return matchesSearch && matchesRole && matchesStatus;
     });
   }, [members, roleFilter, search, statusFilter]);
 
   const activeMembers = members.filter((member) => member.status === "Active");
-
   const officials = members.filter((member) =>
     ["Admin", "Treasurer", "Chairperson"].includes(member.role)
   );
 
-  const expectedMonthlyContribution = activeMembers.reduce(
-    (total, member) => total + Number(member.monthlyContribution || 0),
+  const expectedMonthlyTotal = activeMembers.reduce(
+    (total, member) =>
+      total +
+      Number(member.monthlyContribution || 0) +
+      Number(member.insurancePremium || 0),
     0
   );
 
-  const expectedInsurancePremium = activeMembers.reduce(
-    (total, member) => total + Number(member.insurancePremium || 0),
-    0
-  );
-
-  function updateMember(memberId: string, patch: Partial<Member>) {
-    setMembers((currentMembers) =>
-      currentMembers.map((member) =>
-        member.id === memberId ? { ...member, ...patch } : member
+  function updateMember(id: string, patch: Partial<Member>) {
+    setMembers((current) =>
+      current.map((member) =>
+        member.id === id ? { ...member, ...patch } : member
       )
     );
   }
 
   function addMember() {
-    const cleanName = newMemberName.trim();
+    const name = newName.trim();
 
-    if (!cleanName) return;
-
-    const today = new Date().toISOString().slice(0, 10);
+    if (!name) return;
 
     const member: Member = {
-      id: createMemberId(),
-      name: cleanName,
-      phone: newMemberPhone.trim(),
+      id: createId(),
+      name,
+      phone: newPhone.trim(),
       role: "Member",
       status: "Active",
       monthlyContribution: 200,
       insurancePremium: 750,
-      joinDate: today,
+      joinDate: today(),
       notes: "",
     };
 
-    setMembers((currentMembers) => sortMembersByName([...currentMembers, member]));
-    setNewMemberName("");
-    setNewMemberPhone("");
+    setMembers((current) => sortMembers([...current, member]));
+    setNewName("");
+    setNewPhone("");
   }
 
   function clearFilters() {
@@ -229,15 +225,70 @@ export default function MembersClient() {
     setStatusFilter("All");
   }
 
-  function resetDemoData() {
-    const confirmed = window.confirm(
-      "Reset the local members register to the starter data?"
-    );
-
+  function resetLocalData() {
+    const confirmed = window.confirm("Reset members to starter local data?");
     if (!confirmed) return;
 
     setMembers(starterMembers);
     clearFilters();
+  }
+
+  function exportCsv() {
+    const rows = sortMembers(members).map((member, index) => [
+      index + 1,
+      member.name,
+      member.phone,
+      member.role,
+      member.status,
+      member.monthlyContribution,
+      member.insurancePremium,
+      member.joinDate,
+      member.notes,
+    ]);
+
+    const headers = [
+      "No.",
+      "Name",
+      "Phone",
+      "Role",
+      "Status",
+      "Monthly Contribution",
+      "Insurance Premium",
+      "Join Date",
+      "Notes",
+    ];
+
+    const csv = [headers, ...rows]
+      .map((row) => row.map(csvEscape).join(","))
+      .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+
+    anchor.href = url;
+    anchor.download = `jirani-members-${today()}.csv`;
+    anchor.click();
+
+    URL.revokeObjectURL(url);
+  }
+
+  function markExited(id: string) {
+    updateMember(id, { status: "Exited" });
+  }
+
+  function reactivate(id: string) {
+    updateMember(id, { status: "Active" });
+  }
+
+  function deleteMember(id: string) {
+    const confirmed = window.confirm(
+      "Delete this member from local browser storage?"
+    );
+
+    if (!confirmed) return;
+
+    setMembers((current) => current.filter((member) => member.id !== id));
   }
 
   return (
@@ -252,7 +303,7 @@ export default function MembersClient() {
               Members Register
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Manage member records, roles, status, join dates, contributions,
+              Manage members, roles, status, join dates, monthly contributions,
               and insurance premium settings.
             </p>
           </div>
@@ -273,7 +324,15 @@ export default function MembersClient() {
 
             <button
               type="button"
-              onClick={resetDemoData}
+              onClick={exportCsv}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50"
+            >
+              Export CSV
+            </button>
+
+            <button
+              type="button"
+              onClick={resetLocalData}
               className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50"
             >
               Reset local data
@@ -282,15 +341,17 @@ export default function MembersClient() {
         </div>
 
         <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-800">
-          Phase 5 uses local browser storage only. Firestore persistence will be
-          added later.
+          This page currently uses local browser storage only. Firestore
+          persistence will be added in the next database phase.
         </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-medium text-slate-500">Total members</p>
-          <p className="mt-2 text-3xl font-bold text-slate-950">{members.length}</p>
+          <p className="mt-2 text-3xl font-bold text-slate-950">
+            {members.length}
+          </p>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -312,10 +373,10 @@ export default function MembersClient() {
             Expected monthly total
           </p>
           <p className="mt-2 text-2xl font-bold text-slate-950">
-            {formatKes(expectedMonthlyContribution + expectedInsurancePremium)}
+            {formatKes(expectedMonthlyTotal)}
           </p>
           <p className="mt-1 text-xs text-slate-500">
-            Contributions + insurance
+            Active contributions + insurance
           </p>
         </div>
       </div>
@@ -351,7 +412,7 @@ export default function MembersClient() {
             className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none ring-slate-900/10 focus:ring-4"
           >
             <option value="All">All roles</option>
-            {roleOptions.map((role) => (
+            {roles.map((role) => (
               <option key={role} value={role}>
                 {role}
               </option>
@@ -366,7 +427,7 @@ export default function MembersClient() {
             className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none ring-slate-900/10 focus:ring-4"
           >
             <option value="All">All statuses</option>
-            {statusOptions.map((status) => (
+            {statuses.map((status) => (
               <option key={status} value={status}>
                 {status}
               </option>
@@ -380,7 +441,7 @@ export default function MembersClient() {
           <div>
             <h2 className="text-lg font-bold text-slate-950">Add member</h2>
             <p className="mt-1 text-sm text-slate-500">
-              New members are saved locally in this browser during Phase 5.
+              New members are saved locally in this browser.
             </p>
           </div>
 
@@ -393,16 +454,16 @@ export default function MembersClient() {
 
         <div className="grid gap-3 lg:grid-cols-[1fr_220px_auto]">
           <input
-            value={newMemberName}
-            onChange={(event) => setNewMemberName(event.target.value)}
+            value={newName}
+            onChange={(event) => setNewName(event.target.value)}
             disabled={!editMode}
             placeholder="Member full name"
             className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none ring-slate-900/10 focus:ring-4 disabled:bg-slate-50 disabled:text-slate-400"
           />
 
           <input
-            value={newMemberPhone}
-            onChange={(event) => setNewMemberPhone(event.target.value)}
+            value={newPhone}
+            onChange={(event) => setNewPhone(event.target.value)}
             disabled={!editMode}
             placeholder="Phone number"
             className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none ring-slate-900/10 focus:ring-4 disabled:bg-slate-50 disabled:text-slate-400"
@@ -411,8 +472,8 @@ export default function MembersClient() {
           <button
             type="button"
             onClick={addMember}
-            disabled={!editMode || !newMemberName.trim()}
-            className="rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+            disabled={!editMode || !newName.trim()}
+            className="rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
             Add member
           </button>
@@ -428,7 +489,7 @@ export default function MembersClient() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1150px] divide-y divide-slate-200 text-left text-sm">
+          <table className="w-full min-w-[1350px] divide-y divide-slate-200 text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3">No.</th>
@@ -440,6 +501,7 @@ export default function MembersClient() {
                 <th className="px-4 py-3">Insurance</th>
                 <th className="px-4 py-3">Join date</th>
                 <th className="px-4 py-3">Notes</th>
+                <th className="px-4 py-3">Actions</th>
               </tr>
             </thead>
 
@@ -484,7 +546,7 @@ export default function MembersClient() {
                       disabled={!editMode}
                       className="w-36 rounded-lg border border-slate-200 px-3 py-2 text-slate-700 outline-none focus:ring-4 focus:ring-slate-900/10 disabled:appearance-none disabled:border-transparent disabled:bg-transparent disabled:px-0"
                     >
-                      {roleOptions.map((role) => (
+                      {roles.map((role) => (
                         <option key={role} value={role}>
                           {role}
                         </option>
@@ -503,7 +565,7 @@ export default function MembersClient() {
                       disabled={!editMode}
                       className="w-32 rounded-lg border border-slate-200 px-3 py-2 text-slate-700 outline-none focus:ring-4 focus:ring-slate-900/10 disabled:appearance-none disabled:border-transparent disabled:bg-transparent disabled:px-0"
                     >
-                      {statusOptions.map((status) => (
+                      {statuses.map((status) => (
                         <option key={status} value={status}>
                           {status}
                         </option>
@@ -563,6 +625,39 @@ export default function MembersClient() {
                       placeholder="None"
                       className="w-56 rounded-lg border border-slate-200 px-3 py-2 text-slate-700 outline-none focus:ring-4 focus:ring-slate-900/10 disabled:border-transparent disabled:bg-transparent disabled:px-0 disabled:text-slate-500"
                     />
+                  </td>
+
+                  <td className="px-4 py-3">
+                    <div className="flex flex-wrap gap-2">
+                      {member.status === "Exited" ? (
+                        <button
+                          type="button"
+                          onClick={() => reactivate(member.id)}
+                          disabled={!editMode}
+                          className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Reactivate
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => markExited(member.id)}
+                          disabled={!editMode}
+                          className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Mark exited
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => deleteMember(member.id)}
+                        disabled={!editMode}
+                        className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
