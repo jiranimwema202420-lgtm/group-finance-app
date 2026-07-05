@@ -91,6 +91,18 @@ const starterMembers: Member[] = [
 const roleOptions: MemberRole[] = ["Admin", "Treasurer", "Chairperson", "Member"];
 const statusOptions: MemberStatus[] = ["Active", "Inactive", "Exited"];
 
+function normalize(value: unknown) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function sortMembersByName(members: Member[]) {
+  return [...members].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function createMemberId() {
+  return `member-${Date.now()}`;
+}
+
 function formatKes(value: number) {
   return new Intl.NumberFormat("en-KE", {
     style: "currency",
@@ -99,18 +111,11 @@ function formatKes(value: number) {
   }).format(value);
 }
 
-function createMemberId() {
-  return `member-${Date.now()}`;
-}
-
-function sortMembersByName(members: Member[]) {
-  return [...members].sort((a, b) => a.name.localeCompare(b.name));
-}
-
 export default function MembersClient() {
   const [members, setMembers] = useState<Member[]>(starterMembers);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [editMode, setEditMode] = useState(false);
+
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<"All" | MemberRole>("All");
   const [statusFilter, setStatusFilter] = useState<"All" | MemberStatus>("All");
@@ -134,32 +139,44 @@ export default function MembersClient() {
   }, []);
 
   useEffect(() => {
-    if (!hasLoaded) {
-      return;
-    }
+    if (!hasLoaded) return;
 
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(members));
   }, [hasLoaded, members]);
 
   const filteredMembers = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase();
+    const normalizedSearch = normalize(search);
+    const normalizedRoleFilter = normalize(roleFilter);
+    const normalizedStatusFilter = normalize(statusFilter);
 
     return sortMembersByName(members).filter((member) => {
+      const memberName = normalize(member.name);
+      const memberPhone = normalize(member.phone);
+      const memberRole = normalize(member.role);
+      const memberStatus = normalize(member.status);
+      const memberNotes = normalize(member.notes);
+
       const matchesSearch =
         !normalizedSearch ||
-        member.name.toLowerCase().includes(normalizedSearch) ||
-        member.phone.toLowerCase().includes(normalizedSearch) ||
-        member.role.toLowerCase().includes(normalizedSearch);
+        memberName.includes(normalizedSearch) ||
+        memberPhone.includes(normalizedSearch) ||
+        memberRole.includes(normalizedSearch) ||
+        memberStatus.includes(normalizedSearch) ||
+        memberNotes.includes(normalizedSearch);
 
-      const matchesRole = roleFilter === "All" || member.role === roleFilter;
+      const matchesRole =
+        normalizedRoleFilter === "all" || memberRole === normalizedRoleFilter;
+
       const matchesStatus =
-        statusFilter === "All" || member.status === statusFilter;
+        normalizedStatusFilter === "all" ||
+        memberStatus === normalizedStatusFilter;
 
       return matchesSearch && matchesRole && matchesStatus;
     });
   }, [members, roleFilter, search, statusFilter]);
 
   const activeMembers = members.filter((member) => member.status === "Active");
+
   const officials = members.filter((member) =>
     ["Admin", "Treasurer", "Chairperson"].includes(member.role)
   );
@@ -185,9 +202,7 @@ export default function MembersClient() {
   function addMember() {
     const cleanName = newMemberName.trim();
 
-    if (!cleanName) {
-      return;
-    }
+    if (!cleanName) return;
 
     const today = new Date().toISOString().slice(0, 10);
 
@@ -208,16 +223,21 @@ export default function MembersClient() {
     setNewMemberPhone("");
   }
 
+  function clearFilters() {
+    setSearch("");
+    setRoleFilter("All");
+    setStatusFilter("All");
+  }
+
   function resetDemoData() {
     const confirmed = window.confirm(
       "Reset the local members register to the starter data?"
     );
 
-    if (!confirmed) {
-      return;
-    }
+    if (!confirmed) return;
 
     setMembers(starterMembers);
+    clearFilters();
   }
 
   return (
@@ -232,8 +252,8 @@ export default function MembersClient() {
               Members Register
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Manage Jirani Mwema SHG members, roles, active status, join dates,
-              monthly contribution settings, and insurance premium settings.
+              Manage member records, roles, status, join dates, contributions,
+              and insurance premium settings.
             </p>
           </div>
 
@@ -262,17 +282,15 @@ export default function MembersClient() {
         </div>
 
         <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-800">
-          This phase uses local browser storage only. It is safe for layout and
-          workflow testing. Firestore persistence will come in the next phase.
+          Phase 5 uses local browser storage only. Firestore persistence will be
+          added later.
         </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-medium text-slate-500">Total members</p>
-          <p className="mt-2 text-3xl font-bold text-slate-950">
-            {members.length}
-          </p>
+          <p className="mt-2 text-3xl font-bold text-slate-950">{members.length}</p>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -303,11 +321,25 @@ export default function MembersClient() {
       </div>
 
       <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm font-semibold text-slate-700">
+            Showing {filteredMembers.length} of {members.length} members
+          </p>
+
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="w-fit rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50"
+          >
+            Clear filters
+          </button>
+        </div>
+
         <div className="grid gap-3 lg:grid-cols-[1fr_180px_180px]">
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by name, phone, or role"
+            placeholder="Search by name, phone, role, status, or notes"
             className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none ring-slate-900/10 focus:ring-4"
           />
 
@@ -346,9 +378,7 @@ export default function MembersClient() {
       <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <h2 className="text-lg font-bold text-slate-950">
-              Add member
-            </h2>
+            <h2 className="text-lg font-bold text-slate-950">Add member</h2>
             <p className="mt-1 text-sm text-slate-500">
               New members are saved locally in this browser during Phase 5.
             </p>
@@ -391,16 +421,14 @@ export default function MembersClient() {
 
       <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 p-5">
-          <h2 className="text-lg font-bold text-slate-950">
-            Member list
-          </h2>
+          <h2 className="text-lg font-bold text-slate-950">Member list</h2>
           <p className="mt-1 text-sm text-slate-500">
             Numbered alphabetically. Use editing mode for changes.
           </p>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="min-w-[1150px] w-full divide-y divide-slate-200 text-left text-sm">
+          <table className="w-full min-w-[1150px] divide-y divide-slate-200 text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3">No.</th>
@@ -516,7 +544,9 @@ export default function MembersClient() {
                       type="date"
                       value={member.joinDate}
                       onChange={(event) =>
-                        updateMember(member.id, { joinDate: event.target.value })
+                        updateMember(member.id, {
+                          joinDate: event.target.value,
+                        })
                       }
                       disabled={!editMode}
                       className="w-40 rounded-lg border border-slate-200 px-3 py-2 text-slate-700 outline-none focus:ring-4 focus:ring-slate-900/10 disabled:border-transparent disabled:bg-transparent disabled:px-0"
