@@ -2,7 +2,12 @@
 
 import { useEffect, useState } from "react";
 import type { User } from "firebase/auth";
-import { onAuthStateChanged } from "firebase/auth";
+import {
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signInWithPopup,
+  signOut,
+} from "firebase/auth";
 import type { Firestore } from "firebase/firestore";
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db, firebaseConfigReady } from "@/lib/firebase";
@@ -26,9 +31,7 @@ type LocalMember = {
 };
 
 function makeSafeMember(member: LocalMember, index: number) {
-  const safeId =
-    member.id ||
-    `member_${String(index + 1).padStart(3, "0")}`;
+  const safeId = member.id || `member_${String(index + 1).padStart(3, "0")}`;
 
   return {
     id: safeId,
@@ -50,7 +53,7 @@ function makeSafeMember(member: LocalMember, index: number) {
 
 export default function MembersSeedPage() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [message, setMessage] = useState("Waiting for Firebase Auth...");
+  const [message, setMessage] = useState("Checking Firebase Auth...");
   const [isSeeding, setIsSeeding] = useState(false);
 
   useEffect(() => {
@@ -63,13 +66,36 @@ export default function MembersSeedPage() {
       setCurrentUser(user);
       setMessage(
         user
-          ? `Signed in as ${user.email || user.uid}. Ready to seed.`
-          : "Not signed in. Go to /members and sign in first."
+          ? `Signed in as ${user.email || user.uid}. Ready.`
+          : "Not signed in. Click Sign in with Google."
       );
     });
 
     return unsubscribe;
   }, []);
+
+  async function signInWithGoogle() {
+    if (!auth) {
+      setMessage("Firebase Auth is not configured.");
+      return;
+    }
+
+    const provider = new GoogleAuthProvider();
+
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown sign-in error.";
+
+      setMessage(`Sign-in failed: ${errorMessage}`);
+    }
+  }
+
+  async function signOutUser() {
+    if (!auth) return;
+    await signOut(auth);
+  }
 
   async function seedFromLocalStorage() {
     if (!db) {
@@ -80,14 +106,14 @@ export default function MembersSeedPage() {
     const firestore: Firestore = db;
 
     if (!currentUser) {
-      setMessage("Not signed in. Go to /members and sign in first.");
+      setMessage("Sign in first before seeding members.");
       return;
     }
 
     const rawMembers = window.localStorage.getItem(STORAGE_KEY);
 
     if (!rawMembers) {
-      setMessage("No local members found in this browser.");
+      setMessage("No local members found in this browser. Open /members first, then return here.");
       return;
     }
 
@@ -148,22 +174,44 @@ export default function MembersSeedPage() {
         </h1>
 
         <p className="mt-2 text-sm text-slate-600">
-          This page copies the members saved in this browser&apos;s localStorage
-          into Firestore under groups/demo_group_01/members.
+          This page copies members from this browser&apos;s localStorage into
+          Firestore under groups/demo_group_01/members.
         </p>
 
         <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700">
           {message}
         </div>
 
-        <button
-          type="button"
-          onClick={seedFromLocalStorage}
-          disabled={isSeeding || !currentUser}
-          className="mt-5 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-        >
-          {isSeeding ? "Seeding..." : "Seed members now"}
-        </button>
+        <div className="mt-5 flex flex-wrap gap-3">
+          {currentUser ? (
+            <>
+              <button
+                type="button"
+                onClick={seedFromLocalStorage}
+                disabled={isSeeding}
+                className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {isSeeding ? "Seeding..." : "Seed members now"}
+              </button>
+
+              <button
+                type="button"
+                onClick={signOutUser}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50"
+              >
+                Sign out
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={signInWithGoogle}
+              className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-emerald-700"
+            >
+              Sign in with Google
+            </button>
+          )}
+        </div>
       </div>
     </main>
   );
