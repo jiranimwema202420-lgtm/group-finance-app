@@ -1,5 +1,5 @@
-﻿import MembersClient from "@/components/MembersClient";
+﻿import MembersClientOnly from "@/components/MembersClientOnly";
 
 export default function MembersPage() {
-  return <MembersClient />;
+  return <MembersClientOnly />;
 }
