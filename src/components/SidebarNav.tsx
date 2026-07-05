@@ -37,20 +37,17 @@ const navSections: NavSection[] = [
     items: [
       {
         label: "Members",
-        disabled: true,
-        badge: "Next",
+        href: "/members",
         description: "Member records, roles, and status",
       },
       {
         label: "Contributions",
-        disabled: true,
-        badge: "Next",
+        href: "/contributions",
         description: "Monthly payments and arrears",
       },
       {
         label: "Monthly Splits",
-        disabled: true,
-        badge: "Next",
+        href: "/monthly-splits",
         description: "Insurance, welfare, and merry-go-round",
       },
       {
@@ -66,14 +63,12 @@ const navSections: NavSection[] = [
     items: [
       {
         label: "Reports",
-        disabled: true,
-        badge: "Next",
+        href: "/reports",
         description: "Statements and summaries",
       },
       {
         label: "Settings",
-        disabled: true,
-        badge: "Next",
+        href: "/settings",
         description: "Group rules and app configuration",
       },
       {
