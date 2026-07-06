@@ -53,7 +53,7 @@ function makeSafeMember(member: LocalMember, index: number) {
 
 export default function MembersSeedPage() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [message, setMessage] = useState("Checking Firebase Auth...");
+  const [message, setMessage] = useState("Seed page loaded. Checking auth...");
   const [isSeeding, setIsSeeding] = useState(false);
 
   useEffect(() => {
@@ -64,11 +64,12 @@ export default function MembersSeedPage() {
 
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
-      setMessage(
-        user
-          ? `Signed in as ${user.email || user.uid}. Ready.`
-          : "Not signed in. Click Sign in with Google."
-      );
+
+      if (user) {
+        setMessage(`Signed in as ${user.email || user.uid}. Ready to seed.`);
+      } else {
+        setMessage("Not signed in yet. Click Sign in with Google.");
+      }
     });
 
     return unsubscribe;
@@ -80,9 +81,8 @@ export default function MembersSeedPage() {
       return;
     }
 
-    const provider = new GoogleAuthProvider();
-
     try {
+      const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
     } catch (error) {
       const errorMessage =
@@ -93,8 +93,13 @@ export default function MembersSeedPage() {
   }
 
   async function signOutUser() {
-    if (!auth) return;
+    if (!auth) {
+      setMessage("Firebase Auth is not configured.");
+      return;
+    }
+
     await signOut(auth);
+    setMessage("Signed out.");
   }
 
   async function seedFromLocalStorage() {
@@ -103,17 +108,16 @@ export default function MembersSeedPage() {
       return;
     }
 
-    const firestore: Firestore = db;
-
     if (!currentUser) {
-      setMessage("Sign in first before seeding members.");
+      setMessage("You must sign in first before seeding.");
       return;
     }
 
+    const firestore: Firestore = db;
     const rawMembers = window.localStorage.getItem(STORAGE_KEY);
 
     if (!rawMembers) {
-      setMessage("No local members found in this browser. Open /members first, then return here.");
+      setMessage("No local members found. Open /members first, then come back here.");
       return;
     }
 
@@ -166,7 +170,7 @@ export default function MembersSeedPage() {
     <main className="mx-auto max-w-3xl space-y-6 p-6">
       <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-700">
-          Temporary admin tool
+          Temporary admin tool v2
         </p>
 
         <h1 className="mt-3 text-2xl font-black text-slate-950">
@@ -183,35 +187,35 @@ export default function MembersSeedPage() {
         </div>
 
         <div className="mt-5 flex flex-wrap gap-3">
-          {currentUser ? (
-            <>
-              <button
-                type="button"
-                onClick={seedFromLocalStorage}
-                disabled={isSeeding}
-                className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                {isSeeding ? "Seeding..." : "Seed members now"}
-              </button>
+          <button
+            type="button"
+            onClick={signInWithGoogle}
+            className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-emerald-700"
+          >
+            Sign in with Google
+          </button>
 
-              <button
-                type="button"
-                onClick={signOutUser}
-                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50"
-              >
-                Sign out
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              onClick={signInWithGoogle}
-              className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-emerald-700"
-            >
-              Sign in with Google
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={seedFromLocalStorage}
+            disabled={isSeeding}
+            className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            {isSeeding ? "Seeding..." : "Seed members now"}
+          </button>
+
+          <button
+            type="button"
+            onClick={signOutUser}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50"
+          >
+            Sign out
+          </button>
         </div>
+
+        <p className="mt-4 text-xs text-slate-500">
+          Debug: this page should show “Temporary admin tool v2”.
+        </p>
       </div>
     </main>
   );
