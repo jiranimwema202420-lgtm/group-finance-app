@@ -40,6 +40,15 @@ type Contribution = {
   paymentMethod?: string;
 };
 
+type RecipientRecord = {
+  id: string;
+  memberId: string;
+  memberName: string;
+  month: string;
+  amountGiven: number;
+  notes: string;
+};
+
 type SplitRow = Member & {
   expected: number;
   paid: number;
@@ -64,6 +73,7 @@ function normalizeName(value: string) {
 
 function csvEscape(value: string | number) {
   const text = String(value ?? "");
+
   if (text.includes(",") || text.includes('"') || text.includes("\n")) {
     return `"${text.replaceAll('"', '""')}"`;
   }
@@ -100,6 +110,20 @@ function normalizeContribution(
   };
 }
 
+function normalizeRecipient(
+  data: Partial<RecipientRecord>,
+  fallbackId: string
+): RecipientRecord {
+  return {
+    id: data.id || fallbackId,
+    memberId: data.memberId || "",
+    memberName: data.memberName || "",
+    month: data.month || currentMonth(),
+    amountGiven: Number(data.amountGiven || 0),
+    notes: data.notes || "",
+  };
+}
+
 function getPaymentStatus(
   expected: number,
   paid: number
@@ -116,6 +140,7 @@ export default function MonthlySplitsClient() {
   const [syncError, setSyncError] = useState("");
   const [members, setMembers] = useState<Member[]>([]);
   const [contributions, setContributions] = useState<Contribution[]>([]);
+  const [recipients, setRecipients] = useState<RecipientRecord[]>([]);
   const [month, setMonth] = useState(currentMonth());
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<PaymentStatus>("All");
@@ -246,9 +271,35 @@ export default function MonthlySplitsClient() {
       }
     );
 
+    const recipientsQuery = query(
+      collection(firestore, "groups", CURRENT_GROUP_ID, "monthlyRecipients"),
+      orderBy("month", "desc")
+    );
+
+    const unsubscribeRecipients = onSnapshot(
+      recipientsQuery,
+      (snapshot) => {
+        setRecipients(
+          snapshot.docs.map((item) =>
+            normalizeRecipient(
+              {
+                ...(item.data() as Partial<RecipientRecord>),
+                id: item.id,
+              },
+              item.id
+            )
+          )
+        );
+      },
+      (error) => {
+        setSyncError(error.message);
+      }
+    );
+
     return () => {
       unsubscribeMembers();
       unsubscribeContributions();
+      unsubscribeRecipients();
     };
   }, [currentUser]);
 
@@ -304,6 +355,24 @@ export default function MonthlySplitsClient() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [activeMembers, contributions, month, search, statusFilter]);
 
+  const monthlyRecipientRecords = useMemo(() => {
+    return recipients.filter((recipient) => recipient.month === month);
+  }, [recipients, month]);
+
+  const recipientSummary = useMemo(() => {
+    return monthlyRecipientRecords.reduce(
+      (totals, recipient) => {
+        totals.count += 1;
+        totals.totalGiven += Number(recipient.amountGiven || 0);
+        return totals;
+      },
+      {
+        count: 0,
+        totalGiven: 0,
+      }
+    );
+  }, [monthlyRecipientRecords]);
+
   const summary = useMemo(() => {
     return rows.reduce(
       (totals, row) => {
@@ -338,6 +407,8 @@ export default function MonthlySplitsClient() {
     summary.expected > 0
       ? Math.min((summary.paid / summary.expected) * 100, 100)
       : 0;
+
+  const netRetained = summary.paid - recipientSummary.totalGiven;
 
   async function signInWithGoogle() {
     if (!auth) {
@@ -418,7 +489,7 @@ export default function MonthlySplitsClient() {
 
             <p className="mt-2 max-w-3xl text-sm text-slate-600">
               View each active member&apos;s expected monthly obligation, paid
-              amount, arrears, overpayments, and collection status.
+              amount, arrears, overpayments, recipient payouts, and collection status.
             </p>
 
             <div className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm font-semibold text-slate-700">
@@ -498,7 +569,36 @@ export default function MonthlySplitsClient() {
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-4">
+      <section className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-3xl border border-purple-100 bg-purple-50 p-4">
+          <p className="text-sm font-bold text-purple-800">Recipient payouts</p>
+          <p className="mt-1 text-xl font-black text-purple-900">
+            {money(recipientSummary.totalGiven)}
+          </p>
+          <p className="mt-1 text-xs font-semibold text-purple-800">
+            {recipientSummary.count} recipient record(s)
+          </p>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm font-bold text-slate-700">Net retained</p>
+          <p className="mt-1 text-xl font-black text-slate-950">
+            {money(netRetained)}
+          </p>
+          <p className="mt-1 text-xs font-semibold text-slate-500">
+            Paid collections minus recipient payouts
+          </p>
+        </div>
+
+        <div className="rounded-3xl border border-sky-100 bg-sky-50 p-4">
+          <p className="text-sm font-bold text-sky-800">Overpaid members</p>
+          <p className="mt-1 text-xl font-black text-sky-900">
+            {summary.overpaidMembers}
+          </p>
+        </div>
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-3">
         <div className="rounded-3xl border border-emerald-100 bg-emerald-50 p-4">
           <p className="text-sm font-bold text-emerald-800">Paid members</p>
           <p className="mt-1 text-xl font-black text-emerald-900">
@@ -517,13 +617,6 @@ export default function MonthlySplitsClient() {
           <p className="text-sm font-bold text-red-800">Pending members</p>
           <p className="mt-1 text-xl font-black text-red-900">
             {summary.pendingMembers}
-          </p>
-        </div>
-
-        <div className="rounded-3xl border border-sky-100 bg-sky-50 p-4">
-          <p className="text-sm font-bold text-sky-800">Overpaid members</p>
-          <p className="mt-1 text-xl font-black text-sky-900">
-            {summary.overpaidMembers}
           </p>
         </div>
       </section>
@@ -601,6 +694,7 @@ export default function MonthlySplitsClient() {
                     <td className="rounded-l-2xl px-3 py-3 font-bold text-slate-500">
                       {index + 1}
                     </td>
+
                     <td className="px-3 py-3 font-bold text-slate-900">
                       {row.name}
                       <div className="mt-1 h-1.5 w-full rounded-full bg-slate-200">
@@ -610,6 +704,7 @@ export default function MonthlySplitsClient() {
                         />
                       </div>
                     </td>
+
                     <td className="px-3 py-3">{money(row.monthlyContribution)}</td>
                     <td className="px-3 py-3">{money(row.insurancePremium)}</td>
                     <td className="px-3 py-3">{money(row.merryGoRound)}</td>
