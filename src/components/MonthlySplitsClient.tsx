@@ -9,17 +9,14 @@ import {
   signOut,
 } from "firebase/auth";
 import type { Firestore } from "firebase/firestore";
-import {
-  collection,
-  onSnapshot,
-  orderBy,
-  query,
-} from "firebase/firestore";
+import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { auth, db, firebaseConfigReady } from "@/lib/firebase";
 
 const CURRENT_GROUP_ID = "demo_group_01";
 const MEMBERS_STORAGE_KEY = "jirani_members_register_v1";
 const CONTRIBUTIONS_STORAGE_KEY = "jirani_contributions_register_v1";
+
+type PaymentStatus = "All" | "Paid" | "Partial" | "Pending" | "Overpaid";
 
 type Member = {
   id: string;
@@ -39,6 +36,18 @@ type Contribution = {
   merryGoRound: number;
   amountPaid: number;
   status: string;
+  reference?: string;
+  paymentMethod?: string;
+};
+
+type SplitRow = Member & {
+  expected: number;
+  paid: number;
+  balance: number;
+  overpaid: number;
+  progress: number;
+  paymentStatus: Exclude<PaymentStatus, "All">;
+  contributionCount: number;
 };
 
 function currentMonth() {
@@ -47,6 +56,19 @@ function currentMonth() {
 
 function money(value: number) {
   return `KES ${Number(value || 0).toLocaleString("en-KE")}`;
+}
+
+function normalizeName(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function csvEscape(value: string | number) {
+  const text = String(value ?? "");
+  if (text.includes(",") || text.includes('"') || text.includes("\n")) {
+    return `"${text.replaceAll('"', '""')}"`;
+  }
+
+  return text;
 }
 
 function normalizeMember(data: Partial<Member>, fallbackId: string): Member {
@@ -73,7 +95,19 @@ function normalizeContribution(
     merryGoRound: Number(data.merryGoRound || 1000),
     amountPaid: Number(data.amountPaid || 0),
     status: data.status || "Pending",
+    reference: data.reference || "",
+    paymentMethod: data.paymentMethod || "",
   };
+}
+
+function getPaymentStatus(
+  expected: number,
+  paid: number
+): Exclude<PaymentStatus, "All"> {
+  if (paid > expected && expected > 0) return "Overpaid";
+  if (paid >= expected && expected > 0) return "Paid";
+  if (paid > 0 && paid < expected) return "Partial";
+  return "Pending";
 }
 
 export default function MonthlySplitsClient() {
@@ -84,6 +118,7 @@ export default function MonthlySplitsClient() {
   const [contributions, setContributions] = useState<Contribution[]>([]);
   const [month, setMonth] = useState(currentMonth());
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<PaymentStatus>("All");
 
   useEffect(() => {
     const savedMembers = window.localStorage.getItem(MEMBERS_STORAGE_KEY);
@@ -107,16 +142,23 @@ export default function MonthlySplitsClient() {
       }
     }
 
-    const savedContributions = window.localStorage.getItem(CONTRIBUTIONS_STORAGE_KEY);
+    const savedContributions = window.localStorage.getItem(
+      CONTRIBUTIONS_STORAGE_KEY
+    );
 
     if (savedContributions) {
       try {
-        const parsedContributions = JSON.parse(savedContributions) as Partial<Contribution>[];
+        const parsedContributions = JSON.parse(
+          savedContributions
+        ) as Partial<Contribution>[];
 
         if (Array.isArray(parsedContributions)) {
           setContributions(
             parsedContributions.map((item, index) =>
-              normalizeContribution(item, item.id || `local_contribution_${index + 1}`)
+              normalizeContribution(
+                item,
+                item.id || `local_contribution_${index + 1}`
+              )
             )
           );
         }
@@ -135,7 +177,11 @@ export default function MonthlySplitsClient() {
 
     return onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
-      setSyncMode(user ? `Connecting as ${user.email || user.uid}` : "Local only — not signed in");
+      setSyncMode(
+        user
+          ? `Connecting as ${user.email || user.uid}`
+          : "Local only — not signed in"
+      );
     });
   }, []);
 
@@ -152,21 +198,20 @@ export default function MonthlySplitsClient() {
     const unsubscribeMembers = onSnapshot(
       membersQuery,
       (snapshot) => {
-        setMembers(
-          snapshot.docs
-            .map((item) =>
-              normalizeMember(
-                {
-                  ...(item.data() as Partial<Member>),
-                  id: item.id,
-                },
-                item.id
-              )
+        const firestoreMembers = snapshot.docs
+          .map((item) =>
+            normalizeMember(
+              {
+                ...(item.data() as Partial<Member>),
+                id: item.id,
+              },
+              item.id
             )
-            .filter((member) => member.name.trim().length > 0)
-            .sort((a, b) => a.name.localeCompare(b.name))
-        );
+          )
+          .filter((member) => member.name.trim().length > 0)
+          .sort((a, b) => a.name.localeCompare(b.name));
 
+        setMembers(firestoreMembers);
         setSyncError("");
         setSyncMode(`Firestore synced as ${currentUser.email || currentUser.uid}`);
       },
@@ -211,43 +256,53 @@ export default function MonthlySplitsClient() {
     return members.filter((member) => member.status.toLowerCase() !== "exited");
   }, [members]);
 
-  const rows = useMemo(() => {
+  const rows = useMemo<SplitRow[]>(() => {
     return activeMembers
-      .filter((member) => member.name.toLowerCase().includes(search.toLowerCase()))
       .map((member) => {
         const expected =
           Number(member.monthlyContribution || 0) +
           Number(member.insurancePremium || 0) +
           Number(member.merryGoRound || 0);
 
-        const paid = contributions
-          .filter(
-            (contribution) =>
-              contribution.month === month &&
-              contribution.memberName.toLowerCase() === member.name.toLowerCase()
-          )
-          .reduce((total, contribution) => total + Number(contribution.amountPaid || 0), 0);
+        const memberContributions = contributions.filter(
+          (contribution) =>
+            contribution.month === month &&
+            normalizeName(contribution.memberName) === normalizeName(member.name)
+        );
+
+        const paid = memberContributions.reduce(
+          (total, contribution) => total + Number(contribution.amountPaid || 0),
+          0
+        );
 
         const balance = Math.max(expected - paid, 0);
-
-        let status = "Pending";
-
-        if (paid >= expected && expected > 0) {
-          status = "Paid";
-        } else if (paid > 0 && paid < expected) {
-          status = "Partial";
-        }
+        const overpaid = Math.max(paid - expected, 0);
+        const progress = expected > 0 ? Math.min((paid / expected) * 100, 100) : 0;
+        const paymentStatus = getPaymentStatus(expected, paid);
 
         return {
           ...member,
           expected,
           paid,
           balance,
-          status,
+          overpaid,
+          progress,
+          paymentStatus,
+          contributionCount: memberContributions.length,
         };
       })
+      .filter((row) => {
+        const matchesSearch = row.name
+          .toLowerCase()
+          .includes(search.toLowerCase());
+
+        const matchesStatus =
+          statusFilter === "All" || row.paymentStatus === statusFilter;
+
+        return matchesSearch && matchesStatus;
+      })
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [activeMembers, contributions, month, search]);
+  }, [activeMembers, contributions, month, search, statusFilter]);
 
   const summary = useMemo(() => {
     return rows.reduce(
@@ -256,11 +311,33 @@ export default function MonthlySplitsClient() {
         totals.expected += row.expected;
         totals.paid += row.paid;
         totals.balance += row.balance;
+        totals.overpaid += row.overpaid;
+
+        if (row.paymentStatus === "Paid") totals.paidMembers += 1;
+        if (row.paymentStatus === "Partial") totals.partialMembers += 1;
+        if (row.paymentStatus === "Pending") totals.pendingMembers += 1;
+        if (row.paymentStatus === "Overpaid") totals.overpaidMembers += 1;
+
         return totals;
       },
-      { members: 0, expected: 0, paid: 0, balance: 0 }
+      {
+        members: 0,
+        expected: 0,
+        paid: 0,
+        balance: 0,
+        overpaid: 0,
+        paidMembers: 0,
+        partialMembers: 0,
+        pendingMembers: 0,
+        overpaidMembers: 0,
+      }
     );
   }, [rows]);
+
+  const collectionRate =
+    summary.expected > 0
+      ? Math.min((summary.paid / summary.expected) * 100, 100)
+      : 0;
 
   async function signInWithGoogle() {
     if (!auth) {
@@ -280,6 +357,52 @@ export default function MonthlySplitsClient() {
     setSyncMode("Local only — not signed in");
   }
 
+  function exportCsv() {
+    const header = [
+      "#",
+      "Member",
+      "Month",
+      "Monthly Contribution",
+      "Insurance Premium",
+      "Merry-go-round",
+      "Expected",
+      "Paid",
+      "Balance",
+      "Overpaid",
+      "Status",
+      "Contribution Records",
+    ];
+
+    const body = rows.map((row, index) => [
+      index + 1,
+      row.name,
+      month,
+      row.monthlyContribution,
+      row.insurancePremium,
+      row.merryGoRound,
+      row.expected,
+      row.paid,
+      row.balance,
+      row.overpaid,
+      row.paymentStatus,
+      row.contributionCount,
+    ]);
+
+    const csv = [header, ...body]
+      .map((line) => line.map(csvEscape).join(","))
+      .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+
+    anchor.href = url;
+    anchor.download = `jirani-monthly-splits-${month}.csv`;
+    anchor.click();
+
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="space-y-6">
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -294,8 +417,8 @@ export default function MonthlySplitsClient() {
             </h1>
 
             <p className="mt-2 max-w-3xl text-sm text-slate-600">
-              View each active member&apos;s expected monthly split, amount paid,
-              balance, and payment status.
+              View each active member&apos;s expected monthly obligation, paid
+              amount, arrears, overpayments, and collection status.
             </p>
 
             <div className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm font-semibold text-slate-700">
@@ -309,6 +432,14 @@ export default function MonthlySplitsClient() {
           </div>
 
           <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={exportCsv}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50"
+            >
+              Export CSV
+            </button>
+
             {currentUser ? (
               <button
                 type="button"
@@ -330,7 +461,7 @@ export default function MonthlySplitsClient() {
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-4">
+      <section className="grid gap-4 md:grid-cols-5">
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">Members</p>
           <p className="mt-2 text-2xl font-black text-slate-950">
@@ -358,6 +489,43 @@ export default function MonthlySplitsClient() {
             {money(summary.balance)}
           </p>
         </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm font-bold text-slate-500">Collection rate</p>
+          <p className="mt-2 text-2xl font-black text-slate-950">
+            {collectionRate.toFixed(1)}%
+          </p>
+        </div>
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-4">
+        <div className="rounded-3xl border border-emerald-100 bg-emerald-50 p-4">
+          <p className="text-sm font-bold text-emerald-800">Paid members</p>
+          <p className="mt-1 text-xl font-black text-emerald-900">
+            {summary.paidMembers}
+          </p>
+        </div>
+
+        <div className="rounded-3xl border border-amber-100 bg-amber-50 p-4">
+          <p className="text-sm font-bold text-amber-800">Partial members</p>
+          <p className="mt-1 text-xl font-black text-amber-900">
+            {summary.partialMembers}
+          </p>
+        </div>
+
+        <div className="rounded-3xl border border-red-100 bg-red-50 p-4">
+          <p className="text-sm font-bold text-red-800">Pending members</p>
+          <p className="mt-1 text-xl font-black text-red-900">
+            {summary.pendingMembers}
+          </p>
+        </div>
+
+        <div className="rounded-3xl border border-sky-100 bg-sky-50 p-4">
+          <p className="text-sm font-bold text-sky-800">Overpaid members</p>
+          <p className="mt-1 text-xl font-black text-sky-900">
+            {summary.overpaidMembers}
+          </p>
+        </div>
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -380,11 +548,27 @@ export default function MonthlySplitsClient() {
               placeholder="Search member..."
               className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500"
             />
+
+            <select
+              value={statusFilter}
+              onChange={(event) =>
+                setStatusFilter(event.target.value as PaymentStatus)
+              }
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+            >
+              {["All", "Paid", "Partial", "Pending", "Overpaid"].map(
+                (status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                )
+              )}
+            </select>
           </div>
         </div>
 
         <div className="mt-5 overflow-x-auto">
-          <table className="min-w-[900px] w-full border-separate border-spacing-y-2 text-left text-sm">
+          <table className="min-w-[1100px] w-full border-separate border-spacing-y-2 text-left text-sm">
             <thead>
               <tr className="text-xs uppercase tracking-wide text-slate-500">
                 <th className="px-3 py-2">#</th>
@@ -395,6 +579,8 @@ export default function MonthlySplitsClient() {
                 <th className="px-3 py-2">Expected</th>
                 <th className="px-3 py-2">Paid</th>
                 <th className="px-3 py-2">Balance</th>
+                <th className="px-3 py-2">Overpaid</th>
+                <th className="px-3 py-2">Records</th>
                 <th className="px-3 py-2">Status</th>
               </tr>
             </thead>
@@ -403,7 +589,7 @@ export default function MonthlySplitsClient() {
               {rows.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={9}
+                    colSpan={11}
                     className="rounded-2xl bg-slate-50 px-3 py-6 text-center text-slate-500"
                   >
                     No members found for this view.
@@ -417,6 +603,12 @@ export default function MonthlySplitsClient() {
                     </td>
                     <td className="px-3 py-3 font-bold text-slate-900">
                       {row.name}
+                      <div className="mt-1 h-1.5 w-full rounded-full bg-slate-200">
+                        <div
+                          className="h-1.5 rounded-full bg-emerald-600"
+                          style={{ width: `${row.progress}%` }}
+                        />
+                      </div>
                     </td>
                     <td className="px-3 py-3">{money(row.monthlyContribution)}</td>
                     <td className="px-3 py-3">{money(row.insurancePremium)}</td>
@@ -430,9 +622,13 @@ export default function MonthlySplitsClient() {
                     <td className="px-3 py-3 font-bold text-red-700">
                       {money(row.balance)}
                     </td>
+                    <td className="px-3 py-3 font-bold text-sky-700">
+                      {money(row.overpaid)}
+                    </td>
+                    <td className="px-3 py-3">{row.contributionCount}</td>
                     <td className="rounded-r-2xl px-3 py-3">
                       <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-700">
-                        {row.status}
+                        {row.paymentStatus}
                       </span>
                     </td>
                   </tr>
