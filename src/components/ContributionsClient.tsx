@@ -26,6 +26,12 @@ const STORAGE_KEY = "jirani_contributions_register_v1";
 
 type ContributionStatus = "Paid" | "Partial" | "Pending" | "Waived";
 
+type MemberOption = {
+  id: string;
+  name: string;
+  status: string;
+};
+
 type Contribution = {
   id: string;
   memberName: string;
@@ -107,6 +113,7 @@ export default function ContributionsClient() {
   const [syncMode, setSyncMode] = useState("Local only");
   const [syncError, setSyncError] = useState("");
   const [records, setRecords] = useState<Contribution[]>([]);
+  const [members, setMembers] = useState<MemberOption[]>([]);
   const [form, setForm] = useState<Contribution>(emptyContribution);
   const [search, setSearch] = useState("");
   const [monthFilter, setMonthFilter] = useState("All");
@@ -179,6 +186,50 @@ export default function ContributionsClient() {
 
     return unsubscribe;
   }, [currentUser]);
+
+  useEffect(() => {
+    if (!firebaseConfigReady || !db || !currentUser) return;
+
+    const firestore: Firestore = db;
+
+    const membersQuery = query(
+      collection(firestore, "groups", CURRENT_GROUP_ID, "members"),
+      orderBy("name", "asc")
+    );
+
+    const unsubscribe = onSnapshot(
+      membersQuery,
+      (snapshot) => {
+        const firestoreMembers = snapshot.docs
+          .map((item) => {
+            const data = item.data() as Partial<MemberOption>;
+
+            return {
+              id: item.id,
+              name: data.name || "",
+              status: data.status || "Active",
+            };
+          })
+          .filter((member) => member.name.trim().length > 0)
+          .sort((a, b) => a.name.localeCompare(b.name));
+
+        setMembers(firestoreMembers);
+      },
+      (error) => {
+        setSyncError(error.message);
+      }
+    );
+
+    return unsubscribe;
+  }, [currentUser]);
+
+  const activeMembers = useMemo(() => {
+    return members.filter((member) => member.status !== "Exited");
+  }, [members]);
+
+  const memberNames = useMemo(() => {
+    return activeMembers.map((member) => member.name);
+  }, [activeMembers]);
 
   const monthOptions = useMemo(() => {
     const months = Array.from(new Set(records.map((record) => record.month))).filter(Boolean);
@@ -358,13 +409,21 @@ export default function ContributionsClient() {
 
         <div className="mt-4 grid gap-3 md:grid-cols-3">
           <label className="space-y-1 text-sm font-bold text-slate-700">
-            Member name
-            <input
+            Member
+            <select
               value={form.memberName}
               onChange={(event) => updateForm("memberName", event.target.value)}
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500"
-              placeholder="Member name"
-            />
+            >
+              <option value="">
+                {memberNames.length > 0 ? "Select member" : "No members loaded"}
+              </option>
+              {memberNames.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
           </label>
 
           <label className="space-y-1 text-sm font-bold text-slate-700">
@@ -578,3 +637,4 @@ export default function ContributionsClient() {
     </div>
   );
 }
+
