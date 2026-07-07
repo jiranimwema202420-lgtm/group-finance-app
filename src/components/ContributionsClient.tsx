@@ -23,6 +23,7 @@ import { auth, db, firebaseConfigReady } from "@/lib/firebase";
 
 const CURRENT_GROUP_ID = "demo_group_01";
 const STORAGE_KEY = "jirani_contributions_register_v1";
+const MEMBERS_STORAGE_KEY = "jirani_members_register_v1";
 
 type ContributionStatus = "Paid" | "Partial" | "Pending" | "Waived";
 
@@ -31,6 +32,14 @@ type MemberOption = {
   name: string;
   status: string;
 };
+
+function normalizeMemberOption(data: Partial<MemberOption>, fallbackId: string): MemberOption {
+  return {
+    id: data.id || fallbackId,
+    name: data.name || "",
+    status: data.status || "Active",
+  };
+}
 
 type Contribution = {
   id: string;
@@ -132,6 +141,25 @@ export default function ContributionsClient() {
         setRecords([]);
       }
     }
+
+    const savedMembers = window.localStorage.getItem(MEMBERS_STORAGE_KEY);
+
+    if (savedMembers) {
+      try {
+        const parsedMembers = JSON.parse(savedMembers) as Partial<MemberOption>[];
+
+        if (Array.isArray(parsedMembers)) {
+          const localMembers = parsedMembers
+            .map((item, index) => normalizeMemberOption(item, item.id || `local_member_${index + 1}`))
+            .filter((member) => member.name.trim().length > 0)
+            .sort((a, b) => a.name.localeCompare(b.name));
+
+          setMembers(localMembers);
+        }
+      } catch {
+        setMembers([]);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -224,7 +252,7 @@ export default function ContributionsClient() {
   }, [currentUser]);
 
   const activeMembers = useMemo(() => {
-    return members.filter((member) => member.status !== "Exited");
+    return members.filter((member) => member.status.toLowerCase() !== "exited");
   }, [members]);
 
   const memberNames = useMemo(() => {
@@ -416,7 +444,7 @@ export default function ContributionsClient() {
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500"
             >
               <option value="">
-                {memberNames.length > 0 ? "Select member" : "No members loaded"}
+                {memberNames.length > 0 ? "Select member" : "No members loaded — open Members page first"}
               </option>
               {memberNames.map((name) => (
                 <option key={name} value={name}>
@@ -637,4 +665,5 @@ export default function ContributionsClient() {
     </div>
   );
 }
+
 
