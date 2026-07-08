@@ -146,6 +146,11 @@ service cloud.firestore {
         allow delete: if isAdmin(groupId);
       }
 
+      match /monthlyRecipients/{recipientId} {
+        allow read: if isMember(groupId);
+        allow create, update, delete: if isFinanceOfficial(groupId);
+      }
+
       match /rounds/{roundId} {
         allow read: if isMember(groupId);
         allow create, update: if isFinanceOfficial(groupId);
@@ -253,3 +258,5 @@ service cloud.firestore {
     }
   }
 }
+
+
