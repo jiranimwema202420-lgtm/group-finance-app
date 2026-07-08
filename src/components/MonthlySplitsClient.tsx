@@ -15,6 +15,31 @@ import { formatMoney } from "@/lib/groupSettings";
 import { useGroupSettings } from "@/hooks/useGroupSettings";
 
 const CURRENT_GROUP_ID = "demo_group_01";
+
+const MONTHLY_SPLITS_MEMBERS_CACHE_KEY = "jirani_monthly_splits_members_v1";
+const MONTHLY_SPLITS_CONTRIBUTIONS_CACHE_KEY = "jirani_monthly_splits_contributions_v1";
+const MONTHLY_SPLITS_RECIPIENTS_CACHE_KEY = "jirani_monthly_splits_recipients_v1";
+
+function readCache<T>(key: string, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
+
+  try {
+    const saved = window.localStorage.getItem(key);
+    return saved ? (JSON.parse(saved) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeCache<T>(key: string, value: T) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Ignore localStorage write errors.
+  }
+}
 const MEMBERS_STORAGE_KEY = "jirani_members_register_v1";
 const CONTRIBUTIONS_STORAGE_KEY = "jirani_contributions_register_v1";
 
@@ -143,6 +168,8 @@ export default function MonthlySplitsClient() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [syncMode, setSyncMode] = useState("Local only");
   const [syncError, setSyncError] = useState("");
+  const [dataRefreshKey, setDataRefreshKey] = useState(0);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState("");
   const [members, setMembers] = useState<Member[]>([]);
   const [contributions, setContributions] = useState<Contribution[]>([]);
   const [recipients, setRecipients] = useState<RecipientRecord[]>([]);
@@ -196,6 +223,14 @@ export default function MonthlySplitsClient() {
         setContributions([]);
       }
     }
+  }, []);
+
+  useEffect(() => {
+    setMembers(readCache(MONTHLY_SPLITS_MEMBERS_CACHE_KEY, []));
+    setContributions(readCache(MONTHLY_SPLITS_CONTRIBUTIONS_CACHE_KEY, []));
+    setRecipients(readCache(MONTHLY_SPLITS_RECIPIENTS_CACHE_KEY, []));
+    setDataRefreshKey((current) => current + 1);
+    setLastUpdatedAt(new Date().toLocaleTimeString());
   }, []);
 
   useEffect(() => {
@@ -315,12 +350,9 @@ export default function MonthlySplitsClient() {
   const rows = useMemo<SplitRow[]>(() => {
     return activeMembers
       .map((member) => {
-        const monthlyContribution =
-          Number(member.monthlyContribution || 0) || settings.monthlyContribution;
-        const insurancePremium =
-          Number(member.insurancePremium || 0) || settings.insurancePremium;
-        const merryGoRound =
-          Number(member.merryGoRound || 0) || settings.merryGoRound;
+        const monthlyContribution = Number(settings.monthlyContribution || 0);
+        const insurancePremium = Number(settings.insurancePremium || 0);
+        const merryGoRound = Number(settings.merryGoRound || 0);
 
         const expected =
           monthlyContribution + insurancePremium + merryGoRound;
@@ -766,4 +798,9 @@ export default function MonthlySplitsClient() {
     </div>
   );
 }
+
+
+
+
+
 
