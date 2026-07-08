@@ -405,28 +405,43 @@ export default function SettingsClient() {
           </label>
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={saveSettings}
-            disabled={isSaving}
-            className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-          >
-            {isSaving ? "Saving..." : "Save settings"}
-          </button>
+        <div className="mt-4 space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={saveSettings}
+              disabled={isSaving}
+              className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+            >
+              {isSaving ? "Saving..." : "Save settings"}
+            </button>
 
-          <button
-            type="button"
-            onClick={resetLocalDefaults}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50"
-          >
-            Reset local defaults
-          </button>
+            <button
+              type="button"
+              onClick={resetLocalDefaults}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50"
+            >
+              Reset local defaults
+            </button>
+          </div>
+
+          {saveMessage ? (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">
+              {saveMessage}
+            </div>
+          ) : null}
+
+          {syncError ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+              {syncError}
+            </div>
+          ) : null}
         </div>
       </section>
     </div>
   );
 }
+
 
 
 
