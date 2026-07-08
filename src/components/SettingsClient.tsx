@@ -181,7 +181,7 @@ export default function SettingsClient() {
     }));
   }
 
-  async function saveSettings() {
+  function saveSettings() {
     setSyncError("");
     setSaveMessage("");
 
@@ -195,33 +195,34 @@ export default function SettingsClient() {
 
     setIsSaving(true);
 
-    try {
-      await setDoc(
-        doc(firestore, "groups", CURRENT_GROUP_ID, "settings", "main"),
-        {
-          ...cleanSettings,
-          updatedBy: currentUser.email || currentUser.uid,
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
+    const savePromise = setDoc(
+      doc(firestore, "groups", CURRENT_GROUP_ID, "settings", "main"),
+      {
+        ...cleanSettings,
+        updatedBy: currentUser.email || currentUser.uid,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
 
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(cleanSettings));
-      setSettings(cleanSettings);
-      setSaveMessage("Settings saved successfully.");
-      alert("Settings saved successfully.");
-      setSyncMode(`Firestore synced as ${currentUser.email || currentUser.uid}`);
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown Firestore error.";
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(cleanSettings));
+    setSettings(cleanSettings);
+    setSaveMessage("Settings save sent to Firestore.");
+    setSyncMode(`Firestore synced as ${currentUser.email || currentUser.uid}`);
+    setIsSaving(false);
 
-      setSyncError(errorMessage);
-      alert(`Settings save failed: ${errorMessage}`);
-    } finally {
-      setIsSaving(false);
-    }
+    savePromise
+      .then(() => {
+        setSaveMessage("Settings saved successfully.");
+      })
+      .catch((error) => {
+        const errorMessage =
+          error instanceof Error ? error.message : "Unknown Firestore error.";
+
+        setSyncError(errorMessage);
+        setSaveMessage("");
+      });
   }
-
   function resetLocalDefaults() {
     setSettings(defaultSettings);
     setSaveMessage("Local defaults restored. Click Save settings to update Firestore.");
@@ -426,4 +427,6 @@ export default function SettingsClient() {
     </div>
   );
 }
+
+
 
