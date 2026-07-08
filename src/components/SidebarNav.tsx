@@ -5,10 +5,8 @@ import { usePathname } from "next/navigation";
 
 type NavItem = {
   label: string;
-  href?: string;
-  description?: string;
-  badge?: string;
-  disabled?: boolean;
+  href: string;
+  icon: string;
 };
 
 type NavSection = {
@@ -23,166 +21,95 @@ const navSections: NavSection[] = [
       {
         label: "Dashboard",
         href: "/",
-        description: "Overview, balances, and activity",
-      },
-      {
-        label: "Meeting Notifications",
-        href: "/meeting-notifications",
-        description: "Meeting reminders and WhatsApp messages",
+        icon: "⌂",
       },
     ],
   },
   {
-    title: "Group Operations",
+    title: "Operations",
     items: [
       {
         label: "Members",
         href: "/members",
-        description: "Member records, roles, and status",
+        icon: "👥",
       },
       {
         label: "Contributions",
         href: "/contributions",
-        description: "Monthly payments and arrears",
+        icon: "💳",
       },
       {
         label: "Monthly Splits",
         href: "/monthly-splits",
-        description: "Insurance, welfare, and merry-go-round",
-      },
-      {
-        label: "Payments",
-        disabled: true,
-        badge: "Paused",
-        description: "M-Pesa and payment reconciliation",
+        icon: "↔",
       },
     ],
   },
   {
-    title: "Governance",
+    title: "Control",
     items: [
       {
         label: "Reports",
         href: "/reports",
-        description: "Statements and summaries",
+        icon: "📊",
       },
       {
         label: "Settings",
         href: "/settings",
-        description: "Group rules and app configuration",
-      },
-      {
-        label: "Public Landing",
-        href: "/landing",
-        description: "Open the public landing page",
+        icon: "⚙",
       },
     ],
   },
 ];
 
-function isActiveRoute(pathname: string, href: string) {
-  if (href === "/") {
-    return pathname === "/";
-  }
-
+function isActivePath(pathname: string, href: string) {
+  if (href === "/") return pathname === "/";
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function NavContent({
-  item,
-  isActive,
-}: {
-  item: NavItem;
-  isActive: boolean;
-}) {
-  return (
-    <>
-      <span className="min-w-0">
-        <span className="block truncate">{item.label}</span>
-
-        {item.description ? (
-          <span
-            className={[
-              "mt-0.5 block truncate text-xs font-normal",
-              isActive ? "text-slate-200" : "text-slate-500",
-            ].join(" ")}
-          >
-            {item.description}
-          </span>
-        ) : null}
-      </span>
-
-      {item.badge ? (
-        <span
-          className={[
-            "ml-3 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold",
-            isActive
-              ? "bg-white/15 text-white"
-              : item.badge === "Paused"
-                ? "bg-amber-100 text-amber-700"
-                : "bg-slate-100 text-slate-500",
-          ].join(" ")}
-        >
-          {item.badge}
-        </span>
-      ) : null}
-    </>
-  );
-}
-
-export default function SidebarNav({
-  onNavigate,
-}: {
-  onNavigate?: () => void;
-}) {
+export default function SidebarNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="space-y-6" aria-label="Main navigation">
+    <nav className="space-y-3">
       {navSections.map((section) => (
-        <section key={section.title}>
-          <h2 className="mb-2 px-3 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+        <div key={section.title} className="space-y-1">
+          <p className="px-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
             {section.title}
-          </h2>
+          </p>
 
           <div className="space-y-1">
             {section.items.map((item) => {
-              const isActive = item.href
-                ? isActiveRoute(pathname, item.href)
-                : false;
-
-              if (!item.href || item.disabled) {
-                return (
-                  <div
-                    key={`${section.title}-${item.label}`}
-                    className="flex cursor-not-allowed items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium text-slate-400"
-                    aria-disabled="true"
-                    title={item.description}
-                  >
-                    <NavContent item={item} isActive={false} />
-                  </div>
-                );
-              }
+              const active = isActivePath(pathname, item.href);
 
               return (
                 <Link
-                  key={`${section.title}-${item.label}`}
+                  key={item.href}
                   href={item.href}
-                  onClick={onNavigate}
-                  aria-current={isActive ? "page" : undefined}
                   className={[
-                    "flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition",
-                    isActive
-                      ? "bg-slate-900 text-white shadow-sm"
-                      : "text-slate-700 hover:bg-slate-100 hover:text-slate-950",
+                    "group flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold transition",
+                    active
+                      ? "bg-emerald-600 text-white shadow-sm"
+                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-950",
                   ].join(" ")}
                 >
-                  <NavContent item={item} isActive={isActive} />
+                  <span
+                    className={[
+                      "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs",
+                      active
+                        ? "bg-white/15 text-white"
+                        : "bg-slate-100 text-slate-500 group-hover:bg-white group-hover:text-slate-800",
+                    ].join(" ")}
+                  >
+                    {item.icon}
+                  </span>
+
+                  <span className="truncate">{item.label}</span>
                 </Link>
               );
             })}
           </div>
-        </section>
+        </div>
       ))}
     </nav>
   );
