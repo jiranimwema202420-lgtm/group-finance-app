@@ -25,7 +25,6 @@ import { useGroupSettings } from "@/hooks/useGroupSettings";
 
 const CURRENT_GROUP_ID = "demo_group_01";
 const STORAGE_KEY = "jirani_contributions_register_v1";
-const MEMBERS_STORAGE_KEY = "jirani_members_register_v1";
 
 type ContributionStatus = "Paid" | "Partial" | "Pending" | "Waived";
 
@@ -35,16 +34,9 @@ type MemberOption = {
   status: string;
 };
 
-function normalizeMemberOption(data: Partial<MemberOption>, fallbackId: string): MemberOption {
-  return {
-    id: data.id || fallbackId,
-    name: data.name || "",
-    status: data.status || "Active",
-  };
-}
-
 type Contribution = {
   id: string;
+  memberId: string;
   memberName: string;
   month: string;
   monthlyContribution: number;
@@ -59,11 +51,12 @@ type Contribution = {
 
 const emptyContribution: Contribution = {
   id: "",
+  memberId: "",
   memberName: "",
   month: new Date().toISOString().slice(0, 7),
-  monthlyContribution: 200,
-  insurancePremium: 750,
-  merryGoRound: 1000,
+  monthlyContribution: 0,
+  insurancePremium: 0,
+  merryGoRound: 0,
   amountPaid: 0,
   status: "Pending",
   paymentMethod: "M-Pesa",
@@ -72,10 +65,10 @@ const emptyContribution: Contribution = {
 };
 
 function makeId() {
-  return `contribution_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  return `contribution_${Date.now()}_${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
 }
-
-
 
 function contributionTotal(record: Contribution) {
   return (
@@ -85,7 +78,10 @@ function contributionTotal(record: Contribution) {
   );
 }
 
-function normalizeContribution(data: Partial<Contribution>, fallbackId: string): Contribution {
+function normalizeContribution(
+  data: Partial<Contribution>,
+  fallbackId: string
+): Contribution {
   const monthlyContribution = Number(data.monthlyContribution || 0);
   const insurancePremium = Number(data.insurancePremium || 0);
   const merryGoRound = Number(data.merryGoRound || 0);
@@ -104,6 +100,7 @@ function normalizeContribution(data: Partial<Contribution>, fallbackId: string):
 
   return {
     id: data.id || fallbackId,
+    memberId: data.memberId || "",
     memberName: data.memberName || "",
     month: data.month || new Date().toISOString().slice(0, 7),
     monthlyContribution,
@@ -123,12 +120,29 @@ export default function ContributionsClient() {
   function money(value: number) {
     return formatMoney(settings.currency, value);
   }
+
+  function createEmptyContribution(): Contribution {
+    return {
+      ...emptyContribution,
+      month: new Date().toISOString().slice(0, 7),
+      monthlyContribution: Number(settings.monthlyContribution || 0),
+      insurancePremium: Number(settings.insurancePremium || 0),
+      merryGoRound: Number(settings.merryGoRound || 0),
+    };
+  }
+
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [syncMode, setSyncMode] = useState("Local only");
   const [syncError, setSyncError] = useState("");
+  const [membersSyncMode, setMembersSyncMode] = useState("Members not loaded");
+  const [membersSyncError, setMembersSyncError] = useState("");
+
   const [records, setRecords] = useState<Contribution[]>([]);
   const [members, setMembers] = useState<MemberOption[]>([]);
-  const [form, setForm] = useState<Contribution>(emptyContribution);
+  const [form, setForm] = useState<Contribution>(() =>
+    createEmptyContribution()
+  );
+
   const [search, setSearch] = useState("");
   const [monthFilter, setMonthFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -137,6 +151,7 @@ export default function ContributionsClient() {
     setForm((current) => {
       if (
         current.id ||
+        current.memberId ||
         current.memberName ||
         current.amountPaid ||
         current.reference ||
@@ -147,9 +162,9 @@ export default function ContributionsClient() {
 
       return {
         ...current,
-        monthlyContribution: settings.monthlyContribution,
-        insurancePremium: settings.insurancePremium,
-        merryGoRound: settings.merryGoRound,
+        monthlyContribution: Number(settings.monthlyContribution || 0),
+        insurancePremium: Number(settings.insurancePremium || 0),
+        merryGoRound: Number(settings.merryGoRound || 0),
       };
     });
   }, [
@@ -161,34 +176,20 @@ export default function ContributionsClient() {
   useEffect(() => {
     const saved = window.localStorage.getItem(STORAGE_KEY);
 
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as Partial<Contribution>[];
-        if (Array.isArray(parsed)) {
-          setRecords(parsed.map((item, index) => normalizeContribution(item, item.id || `local_${index + 1}`)));
-        }
-      } catch {
-        setRecords([]);
+    if (!saved) return;
+
+    try {
+      const parsed = JSON.parse(saved) as Partial<Contribution>[];
+
+      if (Array.isArray(parsed)) {
+        setRecords(
+          parsed.map((item, index) =>
+            normalizeContribution(item, item.id || `local_${index + 1}`)
+          )
+        );
       }
-    }
-
-    const savedMembers = window.localStorage.getItem(MEMBERS_STORAGE_KEY);
-
-    if (savedMembers) {
-      try {
-        const parsedMembers = JSON.parse(savedMembers) as Partial<MemberOption>[];
-
-        if (Array.isArray(parsedMembers)) {
-          const localMembers = parsedMembers
-            .map((item, index) => normalizeMemberOption(item, item.id || `local_member_${index + 1}`))
-            .filter((member) => member.name.trim().length > 0)
-            .sort((a, b) => a.name.localeCompare(b.name));
-
-          setMembers(localMembers);
-        }
-      } catch {
-        setMembers([]);
-      }
+    } catch {
+      setRecords([]);
     }
   }, []);
 
@@ -200,12 +201,21 @@ export default function ContributionsClient() {
     if (!firebaseConfigReady || !auth || !db) {
       setSyncMode("Local only");
       setSyncError("Firebase is not configured.");
+      setMembersSyncMode("Members unavailable");
+      setMembersSyncError("Firebase is not configured.");
       return;
     }
 
     return onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
-      setSyncMode(user ? `Connecting as ${user.email || user.uid}` : "Local only — not signed in");
+
+      if (user) {
+        setSyncMode(`Connecting as ${user.email || user.uid}`);
+        setMembersSyncMode(`Loading members as ${user.email || user.uid}`);
+      } else {
+        setSyncMode("Local only — not signed in");
+        setMembersSyncMode("Members unavailable — not signed in");
+      }
     });
   }, []);
 
@@ -272,9 +282,14 @@ export default function ContributionsClient() {
           .sort((a, b) => a.name.localeCompare(b.name));
 
         setMembers(firestoreMembers);
+        setMembersSyncError("");
+        setMembersSyncMode(
+          `Members synced as ${currentUser.email || currentUser.uid}`
+        );
       },
       (error) => {
-        setSyncError(error.message);
+        setMembersSyncMode("Members sync error");
+        setMembersSyncError(error.message);
       }
     );
 
@@ -282,36 +297,60 @@ export default function ContributionsClient() {
   }, [currentUser]);
 
   const activeMembers = useMemo(() => {
-    return members.filter((member) => member.status.toLowerCase() !== "exited");
+    return members.filter((member) => {
+      const status = member.status.toLowerCase();
+      return status !== "inactive" && status !== "exited";
+    });
   }, [members]);
 
   const memberNames = useMemo(() => {
     return activeMembers.map((member) => member.name);
   }, [activeMembers]);
 
+  const memberNameById = useMemo(() => {
+    return new Map(activeMembers.map((member) => [member.id, member.name]));
+  }, [activeMembers]);
+
+  function displayMemberName(record: Contribution) {
+    return record.memberId
+      ? memberNameById.get(record.memberId) || record.memberName
+      : record.memberName;
+  }
+
   const monthOptions = useMemo(() => {
-    const months = Array.from(new Set(records.map((record) => record.month))).filter(Boolean);
+    const months = Array.from(
+      new Set(records.map((record) => record.month))
+    ).filter(Boolean);
+
     return ["All", ...months.sort().reverse()];
   }, [records]);
 
   const filteredRecords = useMemo(() => {
     return records
       .filter((record) => {
-        const matchesSearch = record.memberName.toLowerCase().includes(search.toLowerCase());
+        const matchesSearch = displayMemberName(record)
+          .toLowerCase()
+          .includes(search.toLowerCase());
+
         const matchesMonth = monthFilter === "All" || record.month === monthFilter;
-        const matchesStatus = statusFilter === "All" || record.status === statusFilter;
+        const matchesStatus =
+          statusFilter === "All" || record.status === statusFilter;
 
         return matchesSearch && matchesMonth && matchesStatus;
       })
-      .sort((a, b) => a.memberName.localeCompare(b.memberName));
-  }, [records, search, monthFilter, statusFilter]);
+      .sort((a, b) => displayMemberName(a).localeCompare(displayMemberName(b)));
+  }, [records, search, monthFilter, statusFilter, memberNameById]);
 
   const summary = useMemo(() => {
     return filteredRecords.reduce(
       (totals, record) => {
         totals.expected += contributionTotal(record);
         totals.paid += Number(record.amountPaid || 0);
-        totals.balance += Math.max(contributionTotal(record) - Number(record.amountPaid || 0), 0);
+        totals.balance += Math.max(
+          contributionTotal(record) - Number(record.amountPaid || 0),
+          0
+        );
+
         return totals;
       },
       { expected: 0, paid: 0, balance: 0 }
@@ -333,17 +372,30 @@ export default function ContributionsClient() {
 
     await signOut(auth);
     setCurrentUser(null);
+    setMembers([]);
     setSyncMode("Local only — not signed in");
+    setMembersSyncMode("Members unavailable — not signed in");
   }
 
   async function saveContribution() {
+    const recordId = form.id || makeId();
+
     const cleanRecord = normalizeContribution(
       {
         ...form,
-        id: form.id || makeId(),
+        id: recordId,
       },
-      form.id || makeId()
+      recordId
     );
+
+    const selectedMember =
+      activeMembers.find((member) => member.id === cleanRecord.memberId) ||
+      activeMembers.find((member) => member.name === cleanRecord.memberName);
+
+    if (selectedMember) {
+      cleanRecord.memberId = selectedMember.id;
+      cleanRecord.memberName = selectedMember.name;
+    }
 
     if (!cleanRecord.memberName.trim()) {
       setSyncError("Member name is required.");
@@ -370,18 +422,28 @@ export default function ContributionsClient() {
         const exists = current.some((record) => record.id === cleanRecord.id);
 
         if (exists) {
-          return current.map((record) => (record.id === cleanRecord.id ? cleanRecord : record));
+          return current.map((record) =>
+            record.id === cleanRecord.id ? cleanRecord : record
+          );
         }
 
         return [cleanRecord, ...current];
       });
     }
 
-    setForm(emptyContribution);
+    setForm(createEmptyContribution());
   }
 
   function editContribution(record: Contribution) {
-    setForm(record);
+    setForm(
+      normalizeContribution(
+        {
+          ...record,
+          memberName: displayMemberName(record),
+        },
+        record.id
+      )
+    );
   }
 
   async function removeContribution(id: string) {
@@ -389,14 +451,21 @@ export default function ContributionsClient() {
 
     if (firebaseConfigReady && db && currentUser) {
       const firestore: Firestore = db;
-      await deleteDoc(doc(firestore, "groups", CURRENT_GROUP_ID, "contributions", id));
+      await deleteDoc(
+        doc(firestore, "groups", CURRENT_GROUP_ID, "contributions", id)
+      );
     } else {
       setRecords((current) => current.filter((record) => record.id !== id));
     }
   }
 
-  function updateForm<K extends keyof Contribution>(key: K, value: Contribution[K]) {
-    setForm((current) => normalizeContribution({ ...current, [key]: value }, current.id || ""));
+  function updateForm<K extends keyof Contribution>(
+    key: K,
+    value: Contribution[K]
+  ) {
+    setForm((current) =>
+      normalizeContribution({ ...current, [key]: value }, current.id || "")
+    );
   }
 
   return (
@@ -411,14 +480,37 @@ export default function ContributionsClient() {
               Contributions
             </h1>
             <p className="mt-2 max-w-3xl text-sm text-slate-600">
-              Track monthly member contributions, insurance premiums, merry-go-round payments,
-              arrears, and payment references.
+              Track monthly member contributions, insurance premiums,
+              merry-go-round payments, arrears, and payment references.
             </p>
 
             <div className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm font-semibold text-slate-700">
               Sync mode: {syncMode}
+
+              <span className="mt-1 block text-slate-500">
+                {settingsSyncMode}
+              </span>
+
+              <span className="mt-1 block text-slate-500">
+                {membersSyncMode}
+              </span>
+
               {syncError ? (
-                <span className="mt-1 block text-red-600">Firestore error: {syncError}</span>
+                <span className="mt-1 block text-red-600">
+                  Firestore error: {syncError}
+                </span>
+              ) : null}
+
+              {settingsSyncError ? (
+                <span className="mt-1 block text-red-600">
+                  Settings error: {settingsSyncError}
+                </span>
+              ) : null}
+
+              {membersSyncError ? (
+                <span className="mt-1 block text-red-600">
+                  Members error: {membersSyncError}
+                </span>
               ) : null}
             </div>
           </div>
@@ -448,15 +540,23 @@ export default function ContributionsClient() {
       <section className="grid gap-4 md:grid-cols-3">
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">Expected</p>
-          <p className="mt-2 text-2xl font-black text-slate-950">{money(summary.expected)}</p>
+          <p className="mt-2 text-2xl font-black text-slate-950">
+            {money(summary.expected)}
+          </p>
         </div>
+
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">Paid</p>
-          <p className="mt-2 text-2xl font-black text-emerald-700">{money(summary.paid)}</p>
+          <p className="mt-2 text-2xl font-black text-emerald-700">
+            {money(summary.paid)}
+          </p>
         </div>
+
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">Balance</p>
-          <p className="mt-2 text-2xl font-black text-red-700">{money(summary.balance)}</p>
+          <p className="mt-2 text-2xl font-black text-red-700">
+            {money(summary.balance)}
+          </p>
         </div>
       </section>
 
@@ -469,16 +569,39 @@ export default function ContributionsClient() {
           <label className="space-y-1 text-sm font-bold text-slate-700">
             Member
             <select
-              value={form.memberName}
-              onChange={(event) => updateForm("memberName", event.target.value)}
+              value={
+                form.memberId ||
+                activeMembers.find((member) => member.name === form.memberName)
+                  ?.id ||
+                ""
+              }
+              onChange={(event) => {
+                const selectedMember = activeMembers.find(
+                  (member) => member.id === event.target.value
+                );
+
+                setForm((current) =>
+                  normalizeContribution(
+                    {
+                      ...current,
+                      memberId: selectedMember?.id || "",
+                      memberName: selectedMember?.name || "",
+                    },
+                    current.id || ""
+                  )
+                );
+              }}
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500"
             >
               <option value="">
-                {memberNames.length > 0 ? "Select member" : "No members loaded — open Members page first"}
+                {memberNames.length > 0
+                  ? "Select member"
+                  : "No members loaded — check Members sync"}
               </option>
-              {memberNames.map((name) => (
-                <option key={name} value={name}>
-                  {name}
+
+              {activeMembers.map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.name}
                 </option>
               ))}
             </select>
@@ -499,7 +622,9 @@ export default function ContributionsClient() {
             <input
               type="number"
               value={form.amountPaid}
-              onChange={(event) => updateForm("amountPaid", Number(event.target.value))}
+              onChange={(event) =>
+                updateForm("amountPaid", Number(event.target.value))
+              }
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500"
             />
           </label>
@@ -509,7 +634,9 @@ export default function ContributionsClient() {
             <input
               type="number"
               value={form.monthlyContribution}
-              onChange={(event) => updateForm("monthlyContribution", Number(event.target.value))}
+              onChange={(event) =>
+                updateForm("monthlyContribution", Number(event.target.value))
+              }
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500"
             />
           </label>
@@ -519,7 +646,9 @@ export default function ContributionsClient() {
             <input
               type="number"
               value={form.insurancePremium}
-              onChange={(event) => updateForm("insurancePremium", Number(event.target.value))}
+              onChange={(event) =>
+                updateForm("insurancePremium", Number(event.target.value))
+              }
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500"
             />
           </label>
@@ -529,7 +658,9 @@ export default function ContributionsClient() {
             <input
               type="number"
               value={form.merryGoRound}
-              onChange={(event) => updateForm("merryGoRound", Number(event.target.value))}
+              onChange={(event) =>
+                updateForm("merryGoRound", Number(event.target.value))
+              }
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500"
             />
           </label>
@@ -538,7 +669,9 @@ export default function ContributionsClient() {
             Payment method
             <input
               value={form.paymentMethod}
-              onChange={(event) => updateForm("paymentMethod", event.target.value)}
+              onChange={(event) =>
+                updateForm("paymentMethod", event.target.value)
+              }
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500"
             />
           </label>
@@ -575,7 +708,7 @@ export default function ContributionsClient() {
           {form.id ? (
             <button
               type="button"
-              onClick={() => setForm(emptyContribution)}
+              onClick={() => setForm(createEmptyContribution())}
               className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50"
             >
               Cancel edit
@@ -615,11 +748,13 @@ export default function ContributionsClient() {
               onChange={(event) => setStatusFilter(event.target.value)}
               className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500"
             >
-              {["All", "Paid", "Partial", "Pending", "Waived"].map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
+              {["All", "Paid", "Partial", "Pending", "Waived"].map(
+                (status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                )
+              )}
             </select>
           </div>
         </div>
@@ -642,7 +777,10 @@ export default function ContributionsClient() {
             <tbody>
               {filteredRecords.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="rounded-2xl bg-slate-50 px-3 py-6 text-center text-slate-500">
+                  <td
+                    colSpan={8}
+                    className="rounded-2xl bg-slate-50 px-3 py-6 text-center text-slate-500"
+                  >
                     No contribution records yet.
                   </td>
                 </tr>
@@ -654,12 +792,16 @@ export default function ContributionsClient() {
                   return (
                     <tr key={record.id} className="bg-slate-50">
                       <td className="rounded-l-2xl px-3 py-3 font-bold text-slate-900">
-                        {record.memberName}
+                        {displayMemberName(record)}
                       </td>
                       <td className="px-3 py-3">{record.month}</td>
                       <td className="px-3 py-3">{money(expected)}</td>
-                      <td className="px-3 py-3 font-bold text-emerald-700">{money(record.amountPaid)}</td>
-                      <td className="px-3 py-3 font-bold text-red-700">{money(balance)}</td>
+                      <td className="px-3 py-3 font-bold text-emerald-700">
+                        {money(record.amountPaid)}
+                      </td>
+                      <td className="px-3 py-3 font-bold text-red-700">
+                        {money(balance)}
+                      </td>
                       <td className="px-3 py-3">
                         <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-700">
                           {record.status}
@@ -675,6 +817,7 @@ export default function ContributionsClient() {
                           >
                             Edit
                           </button>
+
                           <button
                             type="button"
                             onClick={() => removeContribution(record.id)}
@@ -695,6 +838,3 @@ export default function ContributionsClient() {
     </div>
   );
 }
-
-
-
