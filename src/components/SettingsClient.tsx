@@ -209,12 +209,14 @@ export default function SettingsClient() {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(cleanSettings));
       setSettings(cleanSettings);
       setSaveMessage("Settings saved successfully.");
+      alert("Settings saved successfully.");
       setSyncMode(`Firestore synced as ${currentUser.email || currentUser.uid}`);
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Unknown Firestore error.";
 
       setSyncError(errorMessage);
+      alert(`Settings save failed: ${errorMessage}`);
     } finally {
       setIsSaving(false);
     }
@@ -424,3 +426,4 @@ export default function SettingsClient() {
     </div>
   );
 }
+
