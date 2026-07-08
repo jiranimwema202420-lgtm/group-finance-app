@@ -20,6 +20,8 @@ import {
   setDoc,
 } from "firebase/firestore";
 import { auth, db, firebaseConfigReady } from "@/lib/firebase";
+import { formatMoney } from "@/lib/groupSettings";
+import { useGroupSettings } from "@/hooks/useGroupSettings";
 
 const CURRENT_GROUP_ID = "demo_group_01";
 const STORAGE_KEY = "jirani_contributions_register_v1";
@@ -73,9 +75,7 @@ function makeId() {
   return `contribution_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function money(value: number) {
-  return `KES ${Number(value || 0).toLocaleString("en-KE")}`;
-}
+
 
 function contributionTotal(record: Contribution) {
   return (
@@ -118,6 +118,11 @@ function normalizeContribution(data: Partial<Contribution>, fallbackId: string):
 }
 
 export default function ContributionsClient() {
+  const { settings, settingsSyncMode, settingsSyncError } = useGroupSettings();
+
+  function money(value: number) {
+    return formatMoney(settings.currency, value);
+  }
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [syncMode, setSyncMode] = useState("Local only");
   const [syncError, setSyncError] = useState("");
@@ -127,6 +132,31 @@ export default function ContributionsClient() {
   const [search, setSearch] = useState("");
   const [monthFilter, setMonthFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
+
+  useEffect(() => {
+    setForm((current) => {
+      if (
+        current.id ||
+        current.memberName ||
+        current.amountPaid ||
+        current.reference ||
+        current.notes
+      ) {
+        return current;
+      }
+
+      return {
+        ...current,
+        monthlyContribution: settings.monthlyContribution,
+        insurancePremium: settings.insurancePremium,
+        merryGoRound: settings.merryGoRound,
+      };
+    });
+  }, [
+    settings.monthlyContribution,
+    settings.insurancePremium,
+    settings.merryGoRound,
+  ]);
 
   useEffect(() => {
     const saved = window.localStorage.getItem(STORAGE_KEY);
@@ -665,5 +695,6 @@ export default function ContributionsClient() {
     </div>
   );
 }
+
 
 
