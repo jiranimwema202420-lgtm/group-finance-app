@@ -11,6 +11,8 @@ import {
 import type { Firestore } from "firebase/firestore";
 import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { auth, db, firebaseConfigReady } from "@/lib/firebase";
+import { formatMoney } from "@/lib/groupSettings";
+import { useGroupSettings } from "@/hooks/useGroupSettings";
 
 const CURRENT_GROUP_ID = "demo_group_01";
 const MEMBERS_STORAGE_KEY = "jirani_members_register_v1";
@@ -60,9 +62,7 @@ function currentMonth() {
   return new Date().toISOString().slice(0, 7);
 }
 
-function money(value: number) {
-  return `KES ${Number(value || 0).toLocaleString("en-KE")}`;
-}
+
 
 function normalizeName(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
@@ -126,6 +126,11 @@ function paymentStatus(expected: number, paid: number): ReportRow["status"] {
 }
 
 export default function ReportsClient() {
+  const { settings, settingsSyncMode, settingsSyncError } = useGroupSettings();
+
+  function money(value: number) {
+    return formatMoney(settings.currency, value);
+  }
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [syncMode, setSyncMode] = useState("Local only");
   const [syncError, setSyncError] = useState("");
@@ -303,10 +308,15 @@ export default function ReportsClient() {
         member.name.toLowerCase().includes(search.toLowerCase())
       )
       .map((member) => {
+        const monthlyContribution =
+          Number(member.monthlyContribution || 0) || settings.monthlyContribution;
+        const insurancePremium =
+          Number(member.insurancePremium || 0) || settings.insurancePremium;
+        const merryGoRound =
+          Number(member.merryGoRound || 0) || settings.merryGoRound;
+
         const expected =
-          Number(member.monthlyContribution || 0) +
-          Number(member.insurancePremium || 0) +
-          Number(member.merryGoRound || 0);
+          monthlyContribution + insurancePremium + merryGoRound;
 
         const paid = contributions
           .filter(
@@ -344,7 +354,16 @@ export default function ReportsClient() {
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [activeMembers, contributions, recipients, month, search]);
+  }, [
+    activeMembers,
+    contributions,
+    recipients,
+    month,
+    search,
+    settings.monthlyContribution,
+    settings.insurancePremium,
+    settings.merryGoRound,
+  ]);
 
   const summary = useMemo(() => {
     return reportRows.reduce(
@@ -463,6 +482,14 @@ export default function ReportsClient() {
 
             <div className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm font-semibold text-slate-700">
               Sync mode: {syncMode}
+              <span className="mt-1 block text-slate-500">
+                {settingsSyncMode}
+              </span>
+              {settingsSyncError ? (
+                <span className="mt-1 block text-red-600">
+                  Settings error: {settingsSyncError}
+                </span>
+              ) : null}
               {syncError ? (
                 <span className="mt-1 block text-red-600">
                   Firestore error: {syncError}
@@ -650,3 +677,4 @@ export default function ReportsClient() {
     </div>
   );
 }
+
