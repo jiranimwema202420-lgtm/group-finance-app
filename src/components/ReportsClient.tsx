@@ -308,12 +308,9 @@ export default function ReportsClient() {
         member.name.toLowerCase().includes(search.toLowerCase())
       )
       .map((member) => {
-        const monthlyContribution =
-          Number(member.monthlyContribution || 0) || settings.monthlyContribution;
-        const insurancePremium =
-          Number(member.insurancePremium || 0) || settings.insurancePremium;
-        const merryGoRound =
-          Number(member.merryGoRound || 0) || settings.merryGoRound;
+        const monthlyContribution = Number(settings.monthlyContribution || 0);
+        const insurancePremium = Number(settings.insurancePremium || 0);
+        const merryGoRound = Number(settings.merryGoRound || 0);
 
         const expected =
           monthlyContribution + insurancePremium + merryGoRound;
@@ -677,4 +674,5 @@ export default function ReportsClient() {
     </div>
   );
 }
+
 

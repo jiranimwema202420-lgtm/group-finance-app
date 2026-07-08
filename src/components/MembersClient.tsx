@@ -20,6 +20,8 @@ import {
 } from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
 import { auth, db, firebaseConfigReady } from "@/lib/firebase";
+import { formatMoney } from "@/lib/groupSettings";
+import { useGroupSettings } from "@/hooks/useGroupSettings";
 
 const CURRENT_GROUP_ID = "demo_group_01";
 const STORAGE_KEY = "jirani_members_register_v1";
@@ -191,6 +193,11 @@ function toFirestoreData(member: Member) {
 }
 
 export default function MembersClient() {
+  const { settings, settingsSyncMode, settingsSyncError } = useGroupSettings();
+
+  function money(value: number) {
+    return formatMoney(settings.currency, value);
+  }
   const [members, setMembers] = useState<Member[]>(starterMembers);
   const [loaded, setLoaded] = useState(false);
   const [editMode, setEditMode] = useState(false);
@@ -351,8 +358,8 @@ export default function MembersClient() {
       phone: newPhone.trim(),
       role: "Member",
       status: "Active",
-      monthlyContribution: 200,
-      insurancePremium: 750,
+      monthlyContribution: settings.monthlyContribution,
+      insurancePremium: settings.insurancePremium,
       joinDate: today(),
       notes: "",
     };
@@ -847,6 +854,10 @@ export default function MembersClient() {
     </section>
   );
 }
+
+
+
+
 
 
 
