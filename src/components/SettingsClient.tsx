@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { User } from "firebase/auth";
 import {
   GoogleAuthProvider,
@@ -39,13 +39,13 @@ const defaultSettings: GroupSettings = {
 };
 
 function money(currency: string, value: number) {
-  return `${currency} ${Number(value || 0).toLocaleString("en-KE")}`;
+  return `${currency || "KES"} ${Number(value || 0).toLocaleString("en-KE")}`;
 }
 
 function normalizeSettings(data: Partial<GroupSettings>): GroupSettings {
   return {
     groupName: data.groupName || defaultSettings.groupName,
-    groupId: data.groupId || CURRENT_GROUP_ID,
+    groupId: CURRENT_GROUP_ID,
     currency: data.currency || "KES",
     monthlyContribution: Number(
       data.monthlyContribution || defaultSettings.monthlyContribution
@@ -59,28 +59,29 @@ function normalizeSettings(data: Partial<GroupSettings>): GroupSettings {
   };
 }
 
+function sameSettings(a: GroupSettings, b: GroupSettings) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 export default function SettingsClient() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [settings, setSettings] = useState<GroupSettings>(defaultSettings);
   const [syncMode, setSyncMode] = useState("Local only");
   const [syncError, setSyncError] = useState("");
+  const [saveMessage, setSaveMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     const saved = window.localStorage.getItem(STORAGE_KEY);
 
-    if (saved) {
-      try {
-        setSettings(normalizeSettings(JSON.parse(saved) as Partial<GroupSettings>));
-      } catch {
-        setSettings(defaultSettings);
-      }
+    if (!saved) return;
+
+    try {
+      setSettings(normalizeSettings(JSON.parse(saved) as Partial<GroupSettings>));
+    } catch {
+      setSettings(defaultSettings);
     }
   }, []);
-
-  useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-  }, [settings]);
 
   useEffect(() => {
     if (!firebaseConfigReady || !auth || !db) {
@@ -103,6 +104,7 @@ export default function SettingsClient() {
     if (!firebaseConfigReady || !db || !currentUser) return;
 
     const firestore: Firestore = db;
+
     const settingsRef = doc(
       firestore,
       "groups",
@@ -115,8 +117,17 @@ export default function SettingsClient() {
       settingsRef,
       (snapshot) => {
         if (snapshot.exists()) {
-          setSettings(
-            normalizeSettings(snapshot.data() as Partial<GroupSettings>)
+          const remoteSettings = normalizeSettings(
+            snapshot.data() as Partial<GroupSettings>
+          );
+
+          setSettings((current) =>
+            sameSettings(current, remoteSettings) ? current : remoteSettings
+          );
+
+          window.localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify(remoteSettings)
           );
         }
 
@@ -131,6 +142,14 @@ export default function SettingsClient() {
 
     return unsubscribe;
   }, [currentUser]);
+
+  const expectedMonthlyTotal = useMemo(() => {
+    return (
+      Number(settings.monthlyContribution || 0) +
+      Number(settings.insurancePremium || 0) +
+      Number(settings.merryGoRound || 0)
+    );
+  }, [settings]);
 
   async function signInWithGoogle() {
     if (!auth) {
@@ -154,6 +173,8 @@ export default function SettingsClient() {
     key: K,
     value: GroupSettings[K]
   ) {
+    setSaveMessage("");
+
     setSettings((current) => ({
       ...current,
       [key]: value,
@@ -162,12 +183,14 @@ export default function SettingsClient() {
 
   async function saveSettings() {
     setSyncError("");
+    setSaveMessage("");
 
     if (!firebaseConfigReady || !db || !currentUser) {
       setSyncError("Sign in as an admin before saving settings.");
       return;
     }
 
+    const cleanSettings = normalizeSettings(settings);
     const firestore: Firestore = db;
 
     setIsSaving(true);
@@ -176,14 +199,16 @@ export default function SettingsClient() {
       await setDoc(
         doc(firestore, "groups", CURRENT_GROUP_ID, "settings", "main"),
         {
-          ...settings,
-          groupId: CURRENT_GROUP_ID,
+          ...cleanSettings,
           updatedBy: currentUser.email || currentUser.uid,
           updatedAt: serverTimestamp(),
         },
         { merge: true }
       );
 
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(cleanSettings));
+      setSettings(cleanSettings);
+      setSaveMessage("Settings saved successfully.");
       setSyncMode(`Firestore synced as ${currentUser.email || currentUser.uid}`);
     } catch (error) {
       const errorMessage =
@@ -195,10 +220,11 @@ export default function SettingsClient() {
     }
   }
 
-  const expectedMonthlyTotal =
-    Number(settings.monthlyContribution || 0) +
-    Number(settings.insurancePremium || 0) +
-    Number(settings.merryGoRound || 0);
+  function resetLocalDefaults() {
+    setSettings(defaultSettings);
+    setSaveMessage("Local defaults restored. Click Save settings to update Firestore.");
+    setSyncError("");
+  }
 
   return (
     <div className="space-y-6">
@@ -220,9 +246,16 @@ export default function SettingsClient() {
 
             <div className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm font-semibold text-slate-700">
               Sync mode: {syncMode}
+
               {syncError ? (
                 <span className="mt-1 block text-red-600">
                   Firestore error: {syncError}
+                </span>
+              ) : null}
+
+              {saveMessage ? (
+                <span className="mt-1 block text-emerald-700">
+                  {saveMessage}
                 </span>
               ) : null}
             </div>
@@ -281,9 +314,7 @@ export default function SettingsClient() {
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-black text-slate-950">
-          Group defaults
-        </h2>
+        <h2 className="text-lg font-black text-slate-950">Group defaults</h2>
 
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <label className="space-y-1 text-sm font-bold text-slate-700">
@@ -308,7 +339,9 @@ export default function SettingsClient() {
             Currency
             <input
               value={settings.currency}
-              onChange={(event) => updateSetting("currency", event.target.value)}
+              onChange={(event) =>
+                updateSetting("currency", event.target.value.toUpperCase())
+              }
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm uppercase outline-none focus:border-emerald-500"
             />
           </label>
@@ -381,7 +414,7 @@ export default function SettingsClient() {
 
           <button
             type="button"
-            onClick={() => setSettings(defaultSettings)}
+            onClick={resetLocalDefaults}
             className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50"
           >
             Reset local defaults
