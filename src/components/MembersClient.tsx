@@ -20,7 +20,7 @@ import {
 } from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
 import { auth, db, firebaseConfigReady } from "@/lib/firebase";
-import { formatMoney } from "@/lib/groupSettings";
+import { defaultGroupSettings, formatMoney } from "@/lib/groupSettings";
 import { useGroupSettings } from "@/hooks/useGroupSettings";
 
 const CURRENT_GROUP_ID = "demo_group_01";
@@ -53,8 +53,8 @@ const starterMembers: Member[] = [
     phone: "",
     role: "Admin",
     status: "Active",
-    monthlyContribution: 200,
-    insurancePremium: 750,
+    monthlyContribution: defaultGroupSettings.monthlyContribution,
+    insurancePremium: defaultGroupSettings.insurancePremium,
     joinDate: "2026-01-01",
     notes: "System owner",
   },
@@ -64,8 +64,8 @@ const starterMembers: Member[] = [
     phone: "",
     role: "Treasurer",
     status: "Active",
-    monthlyContribution: 200,
-    insurancePremium: 750,
+    monthlyContribution: defaultGroupSettings.monthlyContribution,
+    insurancePremium: defaultGroupSettings.insurancePremium,
     joinDate: "2026-01-01",
     notes: "",
   },
@@ -75,8 +75,8 @@ const starterMembers: Member[] = [
     phone: "",
     role: "Chairperson",
     status: "Active",
-    monthlyContribution: 200,
-    insurancePremium: 750,
+    monthlyContribution: defaultGroupSettings.monthlyContribution,
+    insurancePremium: defaultGroupSettings.insurancePremium,
     joinDate: "2026-01-01",
     notes: "",
   },
@@ -86,8 +86,8 @@ const starterMembers: Member[] = [
     phone: "",
     role: "Member",
     status: "Active",
-    monthlyContribution: 200,
-    insurancePremium: 750,
+    monthlyContribution: defaultGroupSettings.monthlyContribution,
+    insurancePremium: defaultGroupSettings.insurancePremium,
     joinDate: "2026-01-01",
     notes: "",
   },
@@ -97,8 +97,8 @@ const starterMembers: Member[] = [
     phone: "",
     role: "Member",
     status: "Active",
-    monthlyContribution: 200,
-    insurancePremium: 750,
+    monthlyContribution: defaultGroupSettings.monthlyContribution,
+    insurancePremium: defaultGroupSettings.insurancePremium,
     joinDate: "2026-01-01",
     notes: "",
   },
@@ -108,8 +108,8 @@ const starterMembers: Member[] = [
     phone: "",
     role: "Member",
     status: "Active",
-    monthlyContribution: 200,
-    insurancePremium: 750,
+    monthlyContribution: defaultGroupSettings.monthlyContribution,
+    insurancePremium: defaultGroupSettings.insurancePremium,
     joinDate: "2026-01-01",
     notes: "",
   },
@@ -854,6 +854,8 @@ export default function MembersClient() {
     </section>
   );
 }
+
+
 
 
 
