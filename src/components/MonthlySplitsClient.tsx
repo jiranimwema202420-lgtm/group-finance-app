@@ -13,6 +13,7 @@ import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { auth, db, firebaseConfigReady } from "@/lib/firebase";
 import { formatMoney } from "@/lib/groupSettings";
 import { useGroupSettings } from "@/hooks/useGroupSettings";
+import { contributionBelongsToMember } from "@/lib/memberMatching";
 
 const CURRENT_GROUP_ID = "demo_group_01";
 
@@ -56,6 +57,7 @@ type Member = {
 
 type Contribution = {
   id: string;
+  memberId?: string;
   memberName: string;
   month: string;
   monthlyContribution: number;
@@ -798,6 +800,10 @@ export default function MonthlySplitsClient() {
     </div>
   );
 }
+
+
+
+
 
 
 

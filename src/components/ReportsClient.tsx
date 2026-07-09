@@ -13,6 +13,7 @@ import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { auth, db, firebaseConfigReady } from "@/lib/firebase";
 import { formatMoney } from "@/lib/groupSettings";
 import { useGroupSettings } from "@/hooks/useGroupSettings";
+import { contributionBelongsToMember } from "@/lib/memberMatching";
 
 const CURRENT_GROUP_ID = "demo_group_01";
 const MEMBERS_STORAGE_KEY = "jirani_members_register_v1";
@@ -30,6 +31,7 @@ type Member = {
 
 type Contribution = {
   id: string;
+  memberId?: string;
   memberName: string;
   month: string;
   amountPaid: number;
@@ -674,5 +676,8 @@ export default function ReportsClient() {
     </div>
   );
 }
+
+
+
 
 
