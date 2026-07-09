@@ -22,17 +22,13 @@ import {
 import { auth, db, firebaseConfigReady } from "@/lib/firebase";
 import { formatMoney } from "@/lib/groupSettings";
 import { useGroupSettings } from "@/hooks/useGroupSettings";
+import { useGroupMembers } from "@/hooks/useGroupMembers";
 
 const CURRENT_GROUP_ID = "demo_group_01";
 const STORAGE_KEY = "jirani_contributions_register_v1";
 
 type ContributionStatus = "Paid" | "Partial" | "Pending" | "Waived";
 
-type MemberOption = {
-  id: string;
-  name: string;
-  status: string;
-};
 
 type Contribution = {
   id: string;
@@ -116,6 +112,8 @@ function normalizeContribution(
 
 export default function ContributionsClient() {
   const { settings, settingsSyncMode, settingsSyncError } = useGroupSettings();
+  const { members, activeMembers, membersSyncMode, membersSyncError } =
+    useGroupMembers();
 
   function money(value: number) {
     return formatMoney(settings.currency, value);
@@ -134,11 +132,8 @@ export default function ContributionsClient() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [syncMode, setSyncMode] = useState("Local only");
   const [syncError, setSyncError] = useState("");
-  const [membersSyncMode, setMembersSyncMode] = useState("Members not loaded");
-  const [membersSyncError, setMembersSyncError] = useState("");
 
   const [records, setRecords] = useState<Contribution[]>([]);
-  const [members, setMembers] = useState<MemberOption[]>([]);
   const [form, setForm] = useState<Contribution>(() =>
     createEmptyContribution()
   );
@@ -201,8 +196,6 @@ export default function ContributionsClient() {
     if (!firebaseConfigReady || !auth || !db) {
       setSyncMode("Local only");
       setSyncError("Firebase is not configured.");
-      setMembersSyncMode("Members unavailable");
-      setMembersSyncError("Firebase is not configured.");
       return;
     }
 
@@ -211,10 +204,8 @@ export default function ContributionsClient() {
 
       if (user) {
         setSyncMode(`Connecting as ${user.email || user.uid}`);
-        setMembersSyncMode(`Loading members as ${user.email || user.uid}`);
       } else {
         setSyncMode("Local only — not signed in");
-        setMembersSyncMode("Members unavailable — not signed in");
       }
     });
   }, []);
@@ -255,53 +246,7 @@ export default function ContributionsClient() {
     return unsubscribe;
   }, [currentUser]);
 
-  useEffect(() => {
-    if (!firebaseConfigReady || !db || !currentUser) return;
 
-    const firestore: Firestore = db;
-
-    const membersQuery = query(
-      collection(firestore, "groups", CURRENT_GROUP_ID, "members"),
-      orderBy("name", "asc")
-    );
-
-    const unsubscribe = onSnapshot(
-      membersQuery,
-      (snapshot) => {
-        const firestoreMembers = snapshot.docs
-          .map((item) => {
-            const data = item.data() as Partial<MemberOption>;
-
-            return {
-              id: item.id,
-              name: data.name || "",
-              status: data.status || "Active",
-            };
-          })
-          .filter((member) => member.name.trim().length > 0)
-          .sort((a, b) => a.name.localeCompare(b.name));
-
-        setMembers(firestoreMembers);
-        setMembersSyncError("");
-        setMembersSyncMode(
-          `Members synced as ${currentUser.email || currentUser.uid}`
-        );
-      },
-      (error) => {
-        setMembersSyncMode("Members sync error");
-        setMembersSyncError(error.message);
-      }
-    );
-
-    return unsubscribe;
-  }, [currentUser]);
-
-  const activeMembers = useMemo(() => {
-    return members.filter((member) => {
-      const status = member.status.toLowerCase();
-      return status !== "inactive" && status !== "exited";
-    });
-  }, [members]);
 
   const memberNames = useMemo(() => {
     return activeMembers.map((member) => member.name);
@@ -372,9 +317,7 @@ export default function ContributionsClient() {
 
     await signOut(auth);
     setCurrentUser(null);
-    setMembers([]);
     setSyncMode("Local only — not signed in");
-    setMembersSyncMode("Members unavailable — not signed in");
   }
 
   async function saveContribution() {
@@ -838,3 +781,4 @@ export default function ContributionsClient() {
     </div>
   );
 }
+

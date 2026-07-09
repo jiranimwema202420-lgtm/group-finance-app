@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import type { Firestore } from "firebase/firestore";
-import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
+import { collection, onSnapshot } from "firebase/firestore";
 import { auth, db, firebaseConfigReady } from "@/lib/firebase";
 import { CURRENT_GROUP_ID } from "@/lib/groupSettings";
 
@@ -23,23 +23,37 @@ export type GroupMember = {
   notes?: string;
 };
 
-const MEMBERS_CACHE_KEY = "jirani_group_members_v1";
+const MEMBERS_CACHE_KEY = "jirani_group_members_v3";
 
-function normalizeMember(id: string, data: Partial<GroupMember>): GroupMember {
+function readText(value: unknown) {
+  return String(value || "").trim();
+}
+
+function readNumber(value: unknown) {
+  return Number(value || 0);
+}
+
+function normalizeMember(id: string, data: Record<string, unknown>): GroupMember {
+  const name =
+    readText(data.name) ||
+    readText(data.memberName) ||
+    readText(data.fullName) ||
+    readText(data.displayName);
+
   return {
     id,
-    memberNumber: Number(data.memberNumber || 0),
-    name: String(data.name || "").trim(),
-    phone: String(data.phone || "").trim(),
-    email: String(data.email || "").trim(),
-    role: String(data.role || "Member").trim(),
-    status: String(data.status || "Active").trim(),
-    monthlyContribution: Number(data.monthlyContribution || 0),
-    insurancePremium: Number(data.insurancePremium || 0),
-    merryGoRound: Number(data.merryGoRound || 0),
-    joinDate: String(data.joinDate || "").trim(),
-    exitDate: String(data.exitDate || "").trim(),
-    notes: String(data.notes || "").trim(),
+    memberNumber: readNumber(data.memberNumber),
+    name,
+    phone: readText(data.phone),
+    email: readText(data.email),
+    role: readText(data.role) || "Member",
+    status: readText(data.status) || "Active",
+    monthlyContribution: readNumber(data.monthlyContribution),
+    insurancePremium: readNumber(data.insurancePremium),
+    merryGoRound: readNumber(data.merryGoRound),
+    joinDate: readText(data.joinDate),
+    exitDate: readText(data.exitDate),
+    notes: readText(data.notes),
   };
 }
 
@@ -60,13 +74,13 @@ function writeCachedMembers(members: GroupMember[]) {
   try {
     window.localStorage.setItem(MEMBERS_CACHE_KEY, JSON.stringify(members));
   } catch {
-    // Ignore localStorage failures.
+    // Ignore cache write failures.
   }
 }
 
 export function useGroupMembers() {
   const [members, setMembers] = useState<GroupMember[]>([]);
-  const [membersSyncMode, setMembersSyncMode] = useState("Local members");
+  const [membersSyncMode, setMembersSyncMode] = useState("Members loading");
   const [membersSyncError, setMembersSyncError] = useState("");
 
   useEffect(() => {
@@ -74,34 +88,33 @@ export function useGroupMembers() {
 
     if (cachedMembers.length > 0) {
       setMembers(cachedMembers);
+      setMembersSyncMode(`Members loaded from cache: ${cachedMembers.length}`);
     }
   }, []);
 
   useEffect(() => {
     if (!firebaseConfigReady || !auth || !db) {
-      setMembersSyncMode("Local members — Firebase not configured");
+      setMembersSyncMode("Members unavailable — Firebase not configured");
+      setMembersSyncError("Firebase is not configured.");
       return;
     }
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (!user || !db) {
-        setMembersSyncMode("Local members — not signed in");
+        setMembers([]);
+        setMembersSyncMode("Members unavailable — not signed in");
+        setMembersSyncError("");
         return;
       }
 
       const firestore: Firestore = db;
 
-      const membersQuery = query(
-        collection(firestore, "groups", CURRENT_GROUP_ID, "members"),
-        orderBy("name", "asc")
-      );
-
       const unsubscribeMembers = onSnapshot(
-        membersQuery,
+        collection(firestore, "groups", CURRENT_GROUP_ID, "members"),
         (snapshot) => {
           const nextMembers = snapshot.docs
             .map((memberDoc) =>
-              normalizeMember(memberDoc.id, memberDoc.data() as Partial<GroupMember>)
+              normalizeMember(memberDoc.id, memberDoc.data())
             )
             .filter((member) => member.name.length > 0)
             .sort((a, b) => a.name.localeCompare(b.name));
@@ -109,7 +122,9 @@ export function useGroupMembers() {
           setMembers(nextMembers);
           writeCachedMembers(nextMembers);
           setMembersSyncError("");
-          setMembersSyncMode(`Members synced as ${user.email || user.uid}`);
+          setMembersSyncMode(
+            `Members synced as ${user.email || user.uid}: ${nextMembers.length}`
+          );
         },
         (error) => {
           setMembersSyncError(error.message);
@@ -123,13 +138,14 @@ export function useGroupMembers() {
     return unsubscribeAuth;
   }, []);
 
-  const activeMembers = useMemo(
-    () =>
-      members
-        .filter((member) => member.status !== "Inactive" && member.status !== "Exited")
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    [members]
-  );
+  const activeMembers = useMemo(() => {
+    return members
+      .filter((member) => {
+        const status = String(member.status || "Active").toLowerCase();
+        return status !== "inactive" && status !== "exited";
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [members]);
 
   return {
     members,
