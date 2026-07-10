@@ -13,11 +13,11 @@ import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { auth, db, firebaseConfigReady } from "@/lib/firebase";
 import { formatMoney } from "@/lib/groupSettings";
 import { useGroupSettings } from "@/hooks/useGroupSettings";
+import { useGroupMembers } from "@/hooks/useGroupMembers";
 import { contributionBelongsToMember } from "@/lib/memberMatching";
 
 const CURRENT_GROUP_ID = "demo_group_01";
 
-const MONTHLY_SPLITS_MEMBERS_CACHE_KEY = "jirani_monthly_splits_members_v1";
 const MONTHLY_SPLITS_CONTRIBUTIONS_CACHE_KEY = "jirani_monthly_splits_contributions_v1";
 const MONTHLY_SPLITS_RECIPIENTS_CACHE_KEY = "jirani_monthly_splits_recipients_v1";
 
@@ -41,7 +41,6 @@ function writeCache<T>(key: string, value: T) {
     // Ignore localStorage write errors.
   }
 }
-const MEMBERS_STORAGE_KEY = "jirani_members_register_v1";
 const CONTRIBUTIONS_STORAGE_KEY = "jirani_contributions_register_v1";
 
 type PaymentStatus = "All" | "Paid" | "Partial" | "Pending" | "Overpaid";
@@ -163,6 +162,8 @@ function getPaymentStatus(
 
 export default function MonthlySplitsClient() {
   const { settings, settingsSyncMode, settingsSyncError } = useGroupSettings();
+  const { activeMembers, membersSyncMode, membersSyncError, membersLoadedAt } =
+    useGroupMembers();
 
   function money(value: number) {
     return formatMoney(settings.currency, value);
@@ -172,7 +173,6 @@ export default function MonthlySplitsClient() {
   const [syncError, setSyncError] = useState("");
   const [dataRefreshKey, setDataRefreshKey] = useState(0);
   const [lastUpdatedAt, setLastUpdatedAt] = useState("");
-  const [members, setMembers] = useState<Member[]>([]);
   const [contributions, setContributions] = useState<Contribution[]>([]);
   const [recipients, setRecipients] = useState<RecipientRecord[]>([]);
   const [month, setMonth] = useState(currentMonth());
@@ -180,27 +180,6 @@ export default function MonthlySplitsClient() {
   const [statusFilter, setStatusFilter] = useState<PaymentStatus>("All");
 
   useEffect(() => {
-    const savedMembers = window.localStorage.getItem(MEMBERS_STORAGE_KEY);
-
-    if (savedMembers) {
-      try {
-        const parsedMembers = JSON.parse(savedMembers) as Partial<Member>[];
-
-        if (Array.isArray(parsedMembers)) {
-          setMembers(
-            parsedMembers
-              .map((item, index) =>
-                normalizeMember(item, item.id || `local_member_${index + 1}`)
-              )
-              .filter((member) => member.name.trim().length > 0)
-              .sort((a, b) => a.name.localeCompare(b.name))
-          );
-        }
-      } catch {
-        setMembers([]);
-      }
-    }
-
     const savedContributions = window.localStorage.getItem(
       CONTRIBUTIONS_STORAGE_KEY
     );
@@ -228,7 +207,6 @@ export default function MonthlySplitsClient() {
   }, []);
 
   useEffect(() => {
-    setMembers(readCache(MONTHLY_SPLITS_MEMBERS_CACHE_KEY, []));
     setContributions(readCache(MONTHLY_SPLITS_CONTRIBUTIONS_CACHE_KEY, []));
     setRecipients(readCache(MONTHLY_SPLITS_RECIPIENTS_CACHE_KEY, []));
     setDataRefreshKey((current) => current + 1);
@@ -257,42 +235,10 @@ export default function MonthlySplitsClient() {
 
     const firestore: Firestore = db;
 
-    const membersQuery = query(
-      collection(firestore, "groups", CURRENT_GROUP_ID, "members"),
-      orderBy("name", "asc")
-    );
-
-    const unsubscribeMembers = onSnapshot(
-      membersQuery,
-      (snapshot) => {
-        const firestoreMembers = snapshot.docs
-          .map((item) =>
-            normalizeMember(
-              {
-                ...(item.data() as Partial<Member>),
-                id: item.id,
-              },
-              item.id
-            )
-          )
-          .filter((member) => member.name.trim().length > 0)
-          .sort((a, b) => a.name.localeCompare(b.name));
-
-        setMembers(firestoreMembers);
-        setSyncError("");
-        setSyncMode(`Firestore synced as ${currentUser.email || currentUser.uid}`);
-      },
-      (error) => {
-        setSyncMode("Firestore unavailable");
-        setSyncError(error.message);
-      }
-    );
-
     const contributionsQuery = query(
       collection(firestore, "groups", CURRENT_GROUP_ID, "contributions"),
       orderBy("month", "desc")
     );
-
     const unsubscribeContributions = onSnapshot(
       contributionsQuery,
       (snapshot) => {
@@ -339,15 +285,10 @@ export default function MonthlySplitsClient() {
     );
 
     return () => {
-      unsubscribeMembers();
       unsubscribeContributions();
       unsubscribeRecipients();
     };
   }, [currentUser]);
-
-  const activeMembers = useMemo(() => {
-    return members.filter((member) => member.status.toLowerCase() !== "exited");
-  }, [members]);
 
   const rows = useMemo<SplitRow[]>(() => {
     return activeMembers
@@ -377,6 +318,7 @@ export default function MonthlySplitsClient() {
 
         return {
           ...member,
+          status: member.status || "Active",
           monthlyContribution,
           insurancePremium,
           merryGoRound,
@@ -800,6 +742,12 @@ export default function MonthlySplitsClient() {
     </div>
   );
 }
+
+
+
+
+
+
 
 
 
