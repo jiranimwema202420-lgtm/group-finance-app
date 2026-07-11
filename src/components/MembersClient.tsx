@@ -813,7 +813,7 @@ export default function MembersClient() {
                         <button
                           type="button"
                           onClick={() => updateMember(member.id, { status: "Active" })}
-                          disabled={!editMode}
+                          disabled={false}
                           className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           Reactivate
@@ -822,7 +822,7 @@ export default function MembersClient() {
                         <button
                           type="button"
                           onClick={() => updateMember(member.id, { status: "Exited" })}
-                          disabled={!editMode}
+                          disabled={false}
                           className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           Mark exited
@@ -832,7 +832,7 @@ export default function MembersClient() {
                       <button
                         type="button"
                         onClick={() => deleteMember(member.id)}
-                        disabled={!editMode}
+                        disabled={false}
                         className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         Delete
@@ -854,6 +854,7 @@ export default function MembersClient() {
     </section>
   );
 }
+
 
 
 
