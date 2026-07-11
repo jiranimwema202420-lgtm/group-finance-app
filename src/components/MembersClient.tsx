@@ -812,7 +812,10 @@ export default function MembersClient() {
                       {member.status === "Exited" ? (
                         <button
                           type="button"
-                          onClick={() => updateMember(member.id, { status: "Active" })}
+                          onClick={() => {
+                          updateMember(member.id, { status: "Active" });
+                          setStatusFilter("All");
+                        }}
                           disabled={false}
                           className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
@@ -821,7 +824,10 @@ export default function MembersClient() {
                       ) : (
                         <button
                           type="button"
-                          onClick={() => updateMember(member.id, { status: "Exited" })}
+                          onClick={() => {
+                          updateMember(member.id, { status: "Exited" });
+                          setStatusFilter("Exited");
+                        }}
                           disabled={false}
                           className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
@@ -854,6 +860,7 @@ export default function MembersClient() {
     </section>
   );
 }
+
 
 
 
